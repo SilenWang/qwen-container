@@ -1,0 +1,16 @@
+# 模型权重（约 22 GB，由 scripts/download_model.sh 下载）
+models/
+
+# slot KV cache 落盘目录
+cache/
+
+# 本地配置
+.env
+
+# pixi 环境
+.pixi/
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store

@@ -1,0 +1,90 @@
+# Qwen3.6-35B-A3B（MoE，35B 总参 / 每 token 激活约 3B）本地推理服务
+# 目标场景：12G 显存 + 128K 上下文 + 可用速度（选型依据见 README「为什么是这套配置」）
+#
+#   cp .env.example .env     # 按需改配置
+#   pixi run download        # 下载 GGUF 权重
+#   pixi run up              # 启动
+#   pixi run smoke           # 自检
+name: qwen36-35b-a3b
+
+services:
+  llama-server:
+    # 固定到已验证的 build 号；锁定 digest 见 `pixi run pin-image`
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b11146}
+    container_name: qwen36-35b-a3b
+    restart: unless-stopped
+    # NVIDIA GPU 透传（等价 docker run --gpus all）
+    gpus: all
+    ports:
+      # 默认只绑本机回环；需要局域网 / 远程访问时把 BIND_ADDR 改成 0.0.0.0
+      # （服务本身没有鉴权，暴露到公网前请自行加反代 + 认证）
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8080}:8080"
+    volumes:
+      - ./models:/models:ro
+      - ./cache:/cache
+    command:
+      - --model
+      - /models/${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf}
+      - --alias
+      - ${MODEL_ALIAS:-qwen3.6-35b-a3b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+
+      # ---- 上下文与显存 ----
+      - --ctx-size
+      - "${CTX_SIZE:-131072}"
+      - --n-gpu-layers
+      - "${N_GPU_LAYERS:-99}"
+      # MoE 专家权重留在系统内存的「前 N 层」：12G 卡唯一真正省显存的旋钮
+      # （专家张量占权重的 88%）。用 `pixi run tune-ncmoe` 从 40 往下扫，
+      # 取最后一个能起来的档位再回退一档。默认 28 是按 12G 显存账算的留余量值。
+      - --n-cpu-moe
+      - "${N_CPU_MOE:-28}"
+      # 关掉 --fit 的自动调参：显存按显式参数算，避免「空上下文估得下、填满后 OOM」
+      - --fit
+      - "${FIT:-off}"
+
+      # ---- 长上下文关键项 ----
+      # K/V 量化类型必须一致，否则 CUDA 端 FlashAttention 内核会静默回落到 CPU 后端
+      - --flash-attn
+      - "${FLASH_ATTN:-on}"
+      - --cache-type-k
+      - "${CACHE_TYPE_K:-q8_0}"
+      - --cache-type-v
+      - "${CACHE_TYPE_V:-q8_0}"
+      # 不走 mmap：长 prompt 不会把 page cache 刷掉（none 即旧版的 --no-mmap）
+      - --load-mode
+      - "${LOAD_MODE:-none}"
+
+      # ---- 批 / 线程 / 并发 ----
+      - --batch-size
+      - "${BATCH_SIZE:-2048}"
+      - --ubatch-size
+      - "${UBATCH_SIZE:-1024}"
+      # -1 = 自动（llama.cpp 取物理核心数）；prefill 偏慢时可显式指定
+      - --threads
+      - "${THREADS:--1}"
+      # 1 个 slot 独占整个 128K KV；调大后每个 slot 的上下文会被均分
+      - --parallel
+      - "${PARALLEL:-1}"
+
+      # ---- 服务能力 ----
+      - --jinja
+      - --metrics
+      - --slot-save-path
+      - /cache
+
+      # ---- 可选：多模态（该模型带视觉塔，需先下载 mmproj，见 README）----
+      # - --mmproj
+      # - /models/mmproj-F16.gguf
+
+    healthcheck:
+      # 镜像自带 curl；/health 在模型加载完成后返回 {"status":"ok"}
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      # --load-mode none 会把整个权重读进内存，22GB 首次加载需要时间
+      start_period: 600s

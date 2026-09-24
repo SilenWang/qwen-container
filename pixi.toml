@@ -1,0 +1,36 @@
+[workspace]
+name = "qwen3.6-35b-a3b"
+description = "12G 显存 / 128K 上下文运行 Qwen3.6-35B-A3B（MoE A3B）：pixi 管依赖 + 容器跑 llama.cpp"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# 依赖一律通过 pixi 声明（不要 pip install / npm install 绕过）
+# 说明：docker 本身是宿主级服务，无法由 pixi 安装，见 README「前置条件」。
+[dependencies]
+python = "3.12.*"
+curl = ">=8.10"
+jq = ">=1.7"
+
+[tasks]
+# ---------------- 模型 ----------------
+download = { cmd = "bash scripts/download_model.sh", description = "下载 GGUF 权重（默认 UD-Q4_K_XL ≈ 22.4 GB，支持断点续传 + 校验大小）" }
+
+# ---------------- 容器 ----------------
+config   = { cmd = "docker compose config", description = "渲染并校验 docker-compose 配置（不启动容器）" }
+up       = { cmd = "docker compose up -d", description = "启动 llama-server 容器（改过 .env 后用 recreate）" }
+recreate = { cmd = "docker compose up -d --force-recreate", description = "按当前 .env 重建容器" }
+down     = { cmd = "docker compose down", description = "停止并移除容器" }
+restart  = { cmd = "docker compose restart", description = "重启容器（不会重新读取 .env，改配置请用 recreate）" }
+logs     = { cmd = "docker compose logs -f --tail=200", description = "跟随 llama-server 日志" }
+ps       = { cmd = "docker compose ps", description = "查看容器状态与健康检查" }
+shell    = { cmd = "docker compose exec llama-server bash", description = "进入容器" }
+
+# ---------------- 验收 / 调参 ----------------
+preflight  = { cmd = "bash scripts/preflight.sh", description = "环境自检：docker / GPU 运行时 / 内存 / 磁盘 / 模型文件" }
+smoke      = { cmd = "python scripts/smoke_test.py", depends-on = ["up"], description = "冒烟：健康检查 + n_ctx 核对 + 一次 chat 补全 + 吞吐" }
+longctx    = { cmd = "python scripts/longctx_test.py", depends-on = ["up"], description = "长上下文阶梯实测：needle 召回 + prefill/decode 吞吐" }
+tune-ncmoe = { cmd = "bash scripts/tune_ncmoe.sh", description = "扫 -ncmoe：逐档重建容器，记录显存与吞吐，给出可用档位" }
+
+# ---------------- 元信息 ----------------
+pin-image  = { cmd = "bash scripts/pin_image.sh", description = "打印 llama.cpp 镜像 digest，便于在 .env 中锁定版本" }
+build-image = { cmd = "bash scripts/build_llamacpp_image.sh", description = "（可选）自编译 llama.cpp CUDA 镜像，例如需要 FA_ALL_QUANTS" }
