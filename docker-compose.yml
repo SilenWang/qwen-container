@@ -1,5 +1,5 @@
 # Qwen3.6-35B-A3B（MoE，35B 总参 / 每 token 激活约 3B）本地推理服务
-# 目标场景：12G 显存 + 128K 上下文 + 可用速度（选型依据见 README「为什么是这套配置」）
+# 目标场景：12G 显存 + 128K 上下文 + 可用速度（配置说明见 README）
 #
 #   cp .env.example .env     # 按需改配置
 #   pixi run download        # 下载 GGUF 权重
