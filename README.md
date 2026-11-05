@@ -9,7 +9,7 @@
 | 引擎 | llama.cpp（`llama-server`） | [Strata](https://github.com/Niko1221/Strata) |
 | 上下文 | 128K | 128K |
 | 显存 / 内存 | 12G / 32G 起（建议 48–64G） | 12G / 48G 起（建议 64G） |
-| 磁盘 | 约 22 GB 权重 | 约 75 GB 权重（首启自动下载） |
+| 磁盘 | 约 22 GB 权重 | 约 66–84 GB 权重（首启自动下载，看档位） |
 | 端口 | `127.0.0.1:8080` | `127.0.0.1:8081` |
 | 启动 | `pixi run up` | `pixi run strata-up` |
 
@@ -79,7 +79,7 @@ pixi run smoke           # 自检：健康检查 + n_ctx 核对 + 一次补全 +
 ```bash
 cp .env.example .env     # 可选：改档位 / 上下文 / key
 pixi run strata-preflight  # 环境自检：驱动版本 / 内存 / 磁盘 / 端口
-pixi run strata-up         # 启动（首次启动自动下载约 70 GB 模型，进度看 strata-logs）
+pixi run strata-up         # 启动（首次启动自动下载 66–84 GB 模型，进度看 strata-logs）
 pixi run strata-key        # 没在 .env 里设 key 时，查看自动生成的 key
 pixi run strata-smoke      # 自检：健康检查 + 模型列表 + 一次补全 + 吞吐
 ```
@@ -122,8 +122,14 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 | `Q2_0` | 37.6 GB | 44 GB | 66 GB | 最快，质量够用 |
 | `IQ2_XS` | 39.2 GB | 46 GB | 68 GB | 默认：速度和质量的平衡点 |
 | `IQ3_XXS` | 47.0 GB | 53 GB | 76 GB | 更慢，质量更好 |
-| `IQ3_S` | 54.8 GB | 60 GB | 更大 | 最慢，质量最好 |
+| `IQ3_S` | 54.8 GB | 60 GB | 84 GB | 最慢，质量最好 |
 | `coder`（`IQ1_M`） | — | 33 GB | — | 砍掉一半专家，偏代码；32 GB 内存机器用这档 |
+
+**12G 显卡能选到哪一档？** 显存不是门槛（Strata 最低要求就是 12 GB 卡），内存才是。
+3060 12G + 64 GB 实测跑过 `IQ3_S`，128K / 260K 上下文召回都正常，decode 约 19–20 tok/s、
+32K prompt prefill 约 820 tok/s（128K 首轮约 160 s）；官方另有一组 63 GB 机器上 128K 跑到 25–28 tok/s 的记录
+（内存装不下全部专家时，引擎会自动走「内存副本 + 按需读盘」）。48 GB 内存建议停在 `IQ3_XXS`（约 26–27 tok/s），
+32 GB 用 `IQ2_XS` 或 coder。
 
 关键运行参数（全部在 `.env`，改完要 `pixi run strata-recreate` 才生效）：
 
@@ -136,6 +142,8 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 | `STRATA_VISION` | `off` | 图片输入；`on` 会多下约 0.9 GB 的读取器（12G 卡上跑 CPU） |
 | `STRATA_TUNE` | `skip` | `quick` 首启做一次硬件校准（5–20 分钟，只做一次） |
 | `STRATA_PARALLEL` | 空 | 并发数 1–8；空 = 按显卡自动 |
+| `STRATA_RAM_KEEP_GIB` | `0` | 给系统留出的空闲内存（GiB）；跑 `IQ3_S` 或机器还要干别的时设 6–8 |
+| `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
 | `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进 `./strata-data` |
 | `STRATA_BIND_ADDR` / `STRATA_PORT` | `127.0.0.1` / `8081` | 只绑本机；对外暴露时务必换成自己设的 key |
 
@@ -144,7 +152,7 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 
 ### 注意事项
 
-- **首次启动会下载约 70 GB 到 `./strata-data/`**，这期间 `docker ps` 显示 `starting`（不是 unhealthy）；进度看 `pixi run strata-logs`。
+- **首次启动会下载 66–84 GB（看档位）到 `./strata-data/`**，这期间 `docker ps` 显示 `starting`（不是 unhealthy）；进度看 `pixi run strata-logs`。
   下载可断点续传，中断后重新 `strata-up` 会接着下。磁盘建议 SSD/NVMe —— 专家权重会按需从盘上读。
 - **模型在宿主机，不在容器里**：`./strata-data` 以 bind mount 挂到容器的 `/data`，删容器 / 换镜像都不丢权重。
 - **单卡只能跑一个模型**：`pixi run up` 会先停模型二，`pixi run strata-up` 会先停模型一；分开停用 `strata-down`。
@@ -167,7 +175,7 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 | pixi | 用于安装依赖与跑任务 | 同左 |
 | CPU | 多核（MoE 专家在内存侧靠 CPU 读） | 支持 AVX2，核心越快越好（专家在 CPU 侧算） |
 | 内存 | 32 GiB 起，建议 48–64 GiB | `IQ2_XS` 需 48 GiB，建议 64 GiB；32 GiB 用 `coder` 档 |
-| 磁盘 | 权重 22.4 GB + 镜像 | 权重约 75 GB + 镜像 2.2 GB，建议 NVMe |
+| 磁盘 | 权重 22.4 GB + 镜像 | 权重 66–84 GB + 镜像 2.2 GB，建议 NVMe |
 
 `docker` 是宿主级服务，无法由 pixi 安装；其余依赖（python / curl / jq）都由 pixi 提供。
 

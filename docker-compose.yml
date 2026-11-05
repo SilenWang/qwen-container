@@ -10,7 +10,7 @@
 #   pixi run up              # 启动模型一
 #   pixi run smoke           # 模型一自检
 #
-#   pixi run strata-up       # 启动模型二（首次启动自动下载模型，约 70 GB）
+#   pixi run strata-up       # 启动模型二（首次启动自动下载模型，66–84 GB）
 #   pixi run strata-smoke    # 模型二自检
 name: qwen36-35b-a3b
 
@@ -112,7 +112,7 @@ services:
       # 和 llama-server 的 8080 错开；只绑回环。Strata 强制要求 API key（无 key 时首启自动生成）
       - "${STRATA_BIND_ADDR:-127.0.0.1}:${STRATA_PORT:-8081}:8080"
     volumes:
-      # 模型文件（约 70 GB 下载 + 6 GB MTP 草稿层）、preset、key 全部落在宿主机项目目录
+      # 模型文件（66–84 GB 下载，看档位；另加 6 GB MTP 草稿层）、preset、key 全部落在宿主机项目目录
       - ./strata-data:/data
     environment:
       # qwen = ISTA-DASLab 的原版 Flash-Next 分档；coder / swift 等见 README
@@ -129,6 +129,10 @@ services:
       PARALLEL: ${STRATA_PARALLEL:-}
       # 16 字符以上；留空则首启自动生成，`pixi run strata-key` 查看
       API_KEY: ${STRATA_API_KEY:-}
+      # 给系统留出的空闲内存（GiB）：0 = 尽量用满（默认）。机器还要跑别的程序时设 6–8
+      STRATA_RAM_KEEP_GIB: ${STRATA_RAM_KEEP_GIB:-0}
+      # 高级引擎参数，空格分隔 KEY=VALUE，等价于 `strata launch --set`（一般留空）
+      STRATA_SET: ${STRATA_SET:-}
     ulimits:
       # 引擎会把几十 GB 内存锁页（mlock），不加这个会退化成更慢的路径
       memlock:
