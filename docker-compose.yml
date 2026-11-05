@@ -1,10 +1,17 @@
-# Qwen3.6-35B-A3B（MoE，35B 总参 / 每 token 激活约 3B）本地推理服务
-# 目标场景：12G 显存 + 128K 上下文 + 可用速度（配置说明见 README）
+# 本地推理服务，两个模型共用一个 compose 文件（配置说明见 README）：
+#
+#   llama-server  Qwen3.6-35B-A3B    —— llama.cpp 引擎，默认启动，宿主 8080
+#   strata        Qwen3.8-Flash-Next —— Strata 引擎，只在 `--profile strata` 下启动，宿主 8081
+#
+# 12G 卡同一时间只能跑其中一个服务（显存不够），切换时先停掉另一个。
 #
 #   cp .env.example .env     # 按需改配置
-#   pixi run download        # 下载 GGUF 权重
-#   pixi run up              # 启动
-#   pixi run smoke           # 自检
+#   pixi run download        # 下载模型一的 GGUF 权重
+#   pixi run up              # 启动模型一
+#   pixi run smoke           # 模型一自检
+#
+#   pixi run strata-up       # 启动模型二（首次启动自动下载模型，约 70 GB）
+#   pixi run strata-smoke    # 模型二自检
 name: qwen36-35b-a3b
 
 services:
@@ -88,3 +95,46 @@ services:
       retries: 40
       # --load-mode none 会把整个权重读进内存，22GB 首次加载需要时间
       start_period: 600s
+  # ============================================================================
+  # 模型二：Qwen3.8-Flash-Next（MoE，512 专家/层，每 token 激活约 10 个；Coder 档保留 256）
+  # 引擎换成 Strata：专家权重按热度在显存 / 内存 / SSD 之间调度，12G 显存可以跑起来。
+  # 只在 `--profile strata` 下启动（`pixi run strata-up`），宿主端口默认 8081。
+  # ============================================================================
+  strata:
+    # 固定版本 tag（可用 `latest-cuda13`，或换成 0.2.7-cuda13 等已验证版本）
+    # cuda13：RTX 20/30/40/50 + 驱动 580+；cuda12：GTX 10 / P100 / V100，或驱动 575–579
+    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.11-cuda13}
+    container_name: qwen38-flash-next
+    profiles: ["strata"]
+    restart: unless-stopped
+    gpus: all
+    ports:
+      # 和 llama-server 的 8080 错开；只绑回环。Strata 强制要求 API key（无 key 时首启自动生成）
+      - "${STRATA_BIND_ADDR:-127.0.0.1}:${STRATA_PORT:-8081}:8080"
+    volumes:
+      # 模型文件（约 70 GB 下载 + 6 GB MTP 草稿层）、preset、key 全部落在宿主机项目目录
+      - ./strata-data:/data
+    environment:
+      # qwen = ISTA-DASLab 的原版 Flash-Next 分档；coder / swift 等见 README
+      FAMILY: ${STRATA_FAMILY:-qwen}
+      # Q2_0 / IQ2_XS / IQ3_XXS / IQ3_S；空 = 由 Strata 按显卡自己选
+      MODEL: ${STRATA_MODEL:-IQ2_XS}
+      CONTEXT: ${STRATA_CONTEXT:-128k}
+      # 会话 KV 格式：int8（默认）/ q4_0 / k8v4 / fp16
+      KV: ${STRATA_KV:-int8}
+      VISION: ${STRATA_VISION:-off}
+      # quick / thorough / skip：首启是否跑一次硬件校准（结果存进 /data，只跑一次）
+      TUNE: ${STRATA_TUNE:-skip}
+      # 空 = Strata 按卡自动；1–8
+      PARALLEL: ${STRATA_PARALLEL:-}
+      # 16 字符以上；留空则首启自动生成，`pixi run strata-key` 查看
+      API_KEY: ${STRATA_API_KEY:-}
+    ulimits:
+      # 引擎会把几十 GB 内存锁页（mlock），不加这个会退化成更慢的路径
+      memlock:
+        soft: -1
+        hard: -1
+    shm_size: 2gb
+    # 停止时要把模型从内存/显存里卸干净，Docker 默认 10s 太短
+    stop_grace_period: 2m
+    # 健康检查用镜像自带的（GET /v1/models + key），首次下载/加载期间显示 starting

@@ -14,3 +14,6 @@ cache/
 *.log
 *.tmp
 .DS_Store
+
+# 模型二（Strata）的数据目录：模型权重 + preset + API key
+strata-data/

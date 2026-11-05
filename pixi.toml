@@ -1,6 +1,6 @@
 [workspace]
 name = "qwen3.6-35b-a3b"
-description = "12G 显存 / 128K 上下文运行 Qwen3.6-35B-A3B（MoE A3B）：pixi 管依赖 + 容器跑 llama.cpp"
+description = "12G 显存 / 128K 上下文跑本地 LLM：Qwen3.6-35B-A3B（llama.cpp）+ Qwen3.8-Flash-Next（Strata），pixi 管依赖 + 容器运行"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
@@ -17,9 +17,9 @@ download = { cmd = "bash scripts/download_model.sh", description = "下载 GGUF 
 
 # ---------------- 容器 ----------------
 config   = { cmd = "docker compose config", description = "渲染并校验 docker-compose 配置（不启动容器）" }
-up       = { cmd = "docker compose up -d", description = "启动 llama-server 容器（改过 .env 后用 recreate）" }
+up       = { cmd = "docker compose --profile strata stop strata; docker compose up -d", description = "启动 llama-server 容器（会先停掉模型二；改过 .env 后用 recreate）" }
 recreate = { cmd = "docker compose up -d --force-recreate", description = "按当前 .env 重建容器" }
-down     = { cmd = "docker compose down", description = "停止并移除容器" }
+down     = { cmd = "docker compose --profile strata down", description = "停止并移除容器（含模型二）" }
 restart  = { cmd = "docker compose restart", description = "重启容器（不会重新读取 .env，改配置请用 recreate）" }
 logs     = { cmd = "docker compose logs -f --tail=200", description = "跟随 llama-server 日志" }
 ps       = { cmd = "docker compose ps", description = "查看容器状态与健康检查" }
@@ -34,3 +34,18 @@ tune-ncmoe = { cmd = "bash scripts/tune_ncmoe.sh", description = "扫 -ncmoe：�
 # ---------------- 元信息 ----------------
 pin-image  = { cmd = "bash scripts/pin_image.sh", description = "打印 llama.cpp 镜像 digest，便于在 .env 中锁定版本" }
 build-image = { cmd = "bash scripts/build_llamacpp_image.sh", description = "（可选）自编译 llama.cpp CUDA 镜像，例如需要 FA_ALL_QUANTS" }
+# ---------------- 模型二：Qwen3.8-Flash-Next（Strata） ----------------
+# 只在 `--profile strata` 下启动，宿主端口 8081；模型由容器首启自动下载到 ./strata-data。
+# 两个模型共用一块 12G 卡：启动其中一个会先停掉另一个。
+strata-config    = { cmd = "docker compose --profile strata config", description = "渲染模型二的 compose 配置（不启动容器）" }
+strata-preflight = { cmd = "bash scripts/strata_preflight.sh", description = "模型二环境自检：驱动版本 / 内存 / 磁盘 / 端口 / 配置" }
+strata-up        = { cmd = "docker compose stop llama-server; docker compose --profile strata up -d strata", description = "启动模型二（会先停掉模型一；首次启动下载约 70 GB）" }
+strata-recreate  = { cmd = "docker compose --profile strata up -d --force-recreate strata", description = "按当前 .env 重建模型二容器（模型与 preset 留在 ./strata-data）" }
+strata-down      = { cmd = "docker compose --profile strata stop strata", description = "停止模型二（卸载模型，释放显存与内存）" }
+strata-restart   = { cmd = "docker compose --profile strata restart strata", description = "重启模型二（不会重新读取 .env）" }
+strata-logs      = { cmd = "docker compose --profile strata logs -f --tail=200 strata", description = "跟随模型二日志（首次启动看下载进度）" }
+strata-ps        = { cmd = "docker compose --profile strata ps", description = "模型二容器状态与健康检查" }
+strata-key       = { cmd = "docker compose --profile strata exec -T strata strata launch --show-key --preset docker", description = "打印模型二的 API key（未在 .env 设置时由首启自动生成）" }
+strata-shell     = { cmd = "docker compose --profile strata exec strata sh", description = "进入模型二容器" }
+strata-pull      = { cmd = "docker compose --profile strata pull strata", description = "拉取/更新 Strata 镜像" }
+strata-smoke     = { cmd = "python scripts/strata_smoke.py", description = "模型二冒烟自检：健康检查 + 模型列表 + 一次 chat 补全 + 吞吐" }
