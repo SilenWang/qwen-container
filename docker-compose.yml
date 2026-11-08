@@ -133,6 +133,10 @@ services:
       STRATA_RAM_KEEP_GIB: ${STRATA_RAM_KEEP_GIB:-0}
       # 高级引擎参数，空格分隔 KEY=VALUE，等价于 `strata launch --set`（一般留空）
       STRATA_SET: ${STRATA_SET:-}
+      # 模型下载源：空 = HuggingFace（默认）；modelscope = 魔搭（国内同名仓库，路径一致）
+      STRATA_SOURCE: ${STRATA_SOURCE:-}
+      # HuggingFace 镜像站（可选，例如 https://hf-mirror.com）；与 STRATA_SOURCE 二选一
+      HF_ENDPOINT: ${HF_ENDPOINT:-}
     ulimits:
       # 引擎会把几十 GB 内存锁页（mlock），不加这个会退化成更慢的路径
       memlock:

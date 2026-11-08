@@ -148,11 +148,33 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 | `STRATA_PARALLEL` | 空 | 并发数 1–8；空 = 按显卡自动 |
 | `STRATA_RAM_KEEP_GIB` | `0` | 给系统留出的空闲内存（GiB）；跑 `IQ3_S` 或机器还要干别的时设 6–8 |
 | `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
+| `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内） |
+| `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com` |
 | `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进 `./strata-data` |
 | `STRATA_BIND_ADDR` / `STRATA_PORT` | `127.0.0.1` / `8081` | 只绑本机；对外暴露时务必换成自己设的 key |
 
 实测参考（社区实测：RTX 3060 12G + i7-12700 + 64 GB，`IQ2_XS`，128K 上下文，Windows v0.1.41）：decode 约 40–46 tok/s，
 32K prompt 约 930 tok/s（128K 首次 prefill 约 2 分钟），上下文召回正常。
+
+### 模型从哪下载
+
+不用手动下：容器首启时由 Strata 自己下载到 `./strata-data/`，两样东西：
+
+| 内容 | 来源 | 体积 |
+|---|---|---:|
+| GGUF 分片（按档位选） | HuggingFace `ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 的 `IQ2_XS/` 等子目录 | 66–84 GB |
+| MTP 草稿层 | HuggingFace `Qwen/Qwen3.8-Flash-Next` 的 `mtp` 张量 | 约 6 GB |
+
+国内网络二选一（都写在 `.env` 里，改完 `pixi run strata-recreate`）：
+
+- **魔搭 ModelScope**（推荐）：同名仓库、同路径，Strata 原生支持 —— `STRATA_SOURCE=modelscope`。
+  `https://www.modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 上 `IQ2_XS/` 两个分片都在（39.2 + 28.8 GB），MTP 取自 `Qwen/Qwen3.8-Flash-Next`。ModelScope 提供的是仓库当前文件，下载后会按它公布的 SHA-256 校验。
+- **HF 镜像站**：`HF_ENDPOINT=https://hf-mirror.com`（仍按 pinned revision 下载并校验）。
+
+两个都留空就是官方 HuggingFace。下载支持断点续传；已下好的文件不会因为换源重下，但换档位会另下。
+
+已经手动下好了？在 compose 里给 strata 服务加一行挂载（例如 `- /your/gguf/IQ2_XS:/models:ro`），
+再设 `MODEL_PATH=/models`、`MODEL=IQ2_XS`；MTP 草稿层仍会从上面的源下载（约 6 GB）。
 
 ### 注意事项
 
