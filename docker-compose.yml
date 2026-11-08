@@ -112,8 +112,9 @@ services:
       # 和 llama-server 的 8080 错开；只绑回环。Strata 强制要求 API key（无 key 时首启自动生成）
       - "${STRATA_BIND_ADDR:-127.0.0.1}:${STRATA_PORT:-8081}:8080"
     volumes:
-      # 模型文件（66–84 GB 下载，看档位；另加 6 GB MTP 草稿层）、preset、key 全部落在宿主机项目目录
-      - ./strata-data:/data
+      # 模型文件（66–84 GB 下载，看档位；默认再拿约 0.8 GB 的 DFlash2 草稿层）、preset、key 都落在宿主机
+      # 默认 ./strata-data；已经下好模型时指过去（如 STRATA_DATA_DIR=/mnt/raid/llm_models），不会再下载
+      - ${STRATA_DATA_DIR:-./strata-data}:/data
     environment:
       # qwen = ISTA-DASLab 的原版 Flash-Next 分档；coder / swift 等见 README
       FAMILY: ${STRATA_FAMILY:-qwen}

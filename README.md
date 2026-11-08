@@ -113,7 +113,7 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 | 推理镜像 | `ghcr.io/niko1221/strata:0.2.11-cuda13`（固定版本 tag） |
 | 引擎 | Strata 0.1.57（镜像自带，专家权重按需在显存 / 内存 / SSD 间调度） |
 | 对外端口 | `127.0.0.1:8081` → 容器内 8080 |
-| 数据目录 | 宿主机 `./strata-data/`（模型、preset、API key，git 忽略） |
+| 数据目录 | 宿主机 `./strata-data/`（模型、预处理包、preset、API key，git 忽略）；可用 `STRATA_DATA_DIR` 指向别处 |
 
 档位与内存（数字来自 Strata 文档；「启动需内存」≈ 首启要放进内存的专家 + 10 GB 系统余量）：
 
@@ -150,7 +150,8 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 | `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
 | `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内） |
 | `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com` |
-| `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进 `./strata-data` |
+| `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进数据目录（`STRATA_DATA_DIR`） |
+| `STRATA_DATA_DIR` | `./strata-data` | 模型二的宿主机数据目录（挂到容器 `/data`）；已经下好模型时指过去可避免重复下载 |
 | `STRATA_BIND_ADDR` / `STRATA_PORT` | `127.0.0.1` / `8081` | 只绑本机；对外暴露时务必换成自己设的 key |
 
 实测参考（社区实测：RTX 3060 12G + i7-12700 + 64 GB，`IQ2_XS`，128K 上下文，Windows v0.1.41）：decode 约 40–46 tok/s，
@@ -158,35 +159,45 @@ model 字段写 `strata` 即可，准确的名字看 `GET /v1/models`（冒烟�
 
 ### 模型从哪下载
 
-不用手动下：容器首启时由 Strata 自己下载到 `./strata-data/`，两样东西：
+不用手动下：容器首启时由 Strata 自己下载到数据目录（默认 `./strata-data/`），主要是两样：
 
 | 内容 | 来源 | 体积 |
 |---|---|---:|
 | GGUF 分片（按档位选） | HuggingFace `ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 的 `IQ2_XS/` 等子目录 | 66–84 GB |
-| MTP 草稿层 | HuggingFace `Qwen/Qwen3.8-Flash-Next` 的 `mtp` 张量 | 约 6 GB |
+| 预处理包 + 草稿层 | 本地由上面分片生成（`packs/`），草稿层默认是 DFlash2 | 约 2 GB |
+
+草稿层默认用 **DFlash2**（约 0.8 GB），**不会**下 MTP 那 6 GB；只有显式 `--drafting mtp` 才会去取 MTP 张量。
 
 国内网络二选一（都写在 `.env` 里，改完 `pixi run strata-recreate`）：
 
 - **魔搭 ModelScope**（推荐）：同名仓库、同路径，Strata 原生支持 —— `STRATA_SOURCE=modelscope`。
-  `https://www.modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 上 `IQ2_XS/` 两个分片都在（39.2 + 28.8 GB），MTP 取自 `Qwen/Qwen3.8-Flash-Next`。ModelScope 提供的是仓库当前文件，下载后会按它公布的 SHA-256 校验。
+  `https://www.modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 上 `IQ2_XS/` 两个分片都在（39.2 + 28.8 GB）。ModelScope 提供的是仓库当前文件，下载后会按它公布的 SHA-256 校验。
 - **HF 镜像站**：`HF_ENDPOINT=https://hf-mirror.com`（仍按 pinned revision 下载并校验）。
 
 两个都留空就是官方 HuggingFace。下载支持断点续传；已下好的文件不会因为换源重下，但换档位会另下。
 
-已经手动下好了？在 compose 里给 strata 服务加一行挂载（例如 `- /your/gguf/IQ2_XS:/models:ro`），
-再设 `MODEL_PATH=/models`、`MODEL=IQ2_XS`；MTP 草稿层仍会从上面的源下载（约 6 GB）。
+已经下好了？把 `STRATA_DATA_DIR` 指向那份数据目录即可（默认 `./strata-data`），例如：
+
+```bash
+# .env
+STRATA_DATA_DIR=/mnt/raid/llm_models
+```
+
+目录里应是 Strata 自己的布局（`Strata-data/models/<档位>/…gguf`、`Strata-data/packs/…`），
+这样 `pixi run strata-up` 直接加载、不再下载。也可以只挂一份 GGUF 分片目录：
+compose 里加 `- /your/gguf/IQ2_XS:/models:ro`，再设 `MODEL_PATH=/models`、`MODEL=IQ2_XS`。
 
 ### 注意事项
 
-- **首次启动会下载 66–84 GB（看档位）到 `./strata-data/`**，这期间 `docker ps` 显示 `starting`（不是 unhealthy）；进度看 `pixi run strata-logs`。
+- **首次启动会下载 66–84 GB（看档位）+ 约 2 GB 预处理包/草稿层到数据目录（默认 `./strata-data/`，可用 `STRATA_DATA_DIR` 改）**，这期间 `docker ps` 显示 `starting`（不是 unhealthy）；进度看 `pixi run strata-logs`。
   下载可断点续传，中断后重新 `strata-up` 会接着下。磁盘建议 SSD/NVMe —— 专家权重会按需从盘上读。
-- **模型在宿主机，不在容器里**：`./strata-data` 以 bind mount 挂到容器的 `/data`，删容器 / 换镜像都不丢权重。
+- **模型在宿主机，不在容器里**：数据目录（默认 `./strata-data`，可用 `STRATA_DATA_DIR` 改）以 bind mount 挂到容器的 `/data`，删容器 / 换镜像都不丢权重。
 - **单卡只能跑一个模型**：`pixi run up` 会先停模型二，`pixi run strata-up` 会先停模型一；分开停用 `strata-down`。
 - **内存不够时会自动降级**：Strata 改成从 SSD 读专家（low-RAM 模式），能跑但明显变慢；32 GB 内存建议直接用 `coder` 档。
 - **首次加载慢**：要往内存里装 30–50 GB，1–3 分钟内机器可能很卡，属正常。
 - **128K 上下文的第一轮很慢**（prefill 是瓶颈），后续轮次只读增量，几秒内开始。
 - **换 `.env` 后要 `strata-recreate`**；`strata-restart` 不会重新读配置。
-- **镜像升级**：`pixi run strata-pull && pixi run strata-recreate`，模型和 preset 保留在 `./strata-data`。
+- **镜像升级**：`pixi run strata-pull && pixi run strata-recreate`，模型和 preset 保留在数据目录。
 
 ---
 
@@ -292,7 +303,7 @@ qwen-container/
 │   └── strata_smoke.py     # 模型二冒烟自检
 ├── models/                 # 模型一权重（git 忽略）
 ├── cache/                  # 模型一 slot KV cache（git 忽略）
-└── strata-data/            # 模型二数据：权重 + preset + key（git 忽略）
+└── strata-data/            # 模型二数据：权重 + 预处理包 + preset + key（可用 STRATA_DATA_DIR 改；git 忽略）
 ```
 
 ## License

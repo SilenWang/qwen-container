@@ -29,7 +29,7 @@ STRATA_MODEL="${STRATA_MODEL:-IQ2_XS}"
 STRATA_CONTEXT="${STRATA_CONTEXT:-128k}"
 STRATA_KV="${STRATA_KV:-int8}"
 STRATA_API_KEY="${STRATA_API_KEY:-}"
-DATA_DIR="$HERE/strata-data"
+DATA_DIR="${STRATA_DATA_DIR:-$HERE/strata-data}"
 MODELS_DIR="$HERE/models"
 
 echo "== 工具链 =="
@@ -114,17 +114,17 @@ fi
 mkdir -p "$DATA_DIR" 2>/dev/null || true
 avail="$(df -BG --output=avail "$DATA_DIR" 2>/dev/null | tail -1 | tr -dc '0-9')"
 avail="${avail:-0}"
-# 模型 IQ2_XS 下载约 68 GB + MTP 草稿层 6 GB，另留余量和镜像
+# 模型 IQ2_XS 下载约 68 GB，另加预处理包与草稿层（约 2 GB），再留余量和镜像
 if [ "$avail" -ge 100 ]; then
-  ok "strata-data 所在磁盘剩余 ${avail}G（模型约 75 GB）"
+  ok "数据目录所在磁盘剩余 ${avail}G（模型约 70 GB）"
 elif [ "$avail" -ge 80 ]; then
-  warn "strata-data 所在磁盘剩余 ${avail}G，模型占约 75 GB，余量不多"
+  warn "数据目录所在磁盘剩余 ${avail}G，模型占约 70 GB，余量不多"
 else
-  bad "strata-data 所在磁盘剩余 ${avail}G 不够：${STRATA_MODEL:-默认档} 要下载约 75 GB"
+  bad "数据目录所在磁盘剩余 ${avail}G 不够：${STRATA_MODEL:-默认档} 要下载约 70 GB"
 fi
 rot="$(lsblk -no ROTA "$(df --output=source "$DATA_DIR" | tail -1)" 2>/dev/null | head -1 | tr -dc '0-9')"
-[ "${rot:-1}" = "0" ] && ok "strata-data 在 SSD/NVMe 上" \
-                      || warn "strata-data 可能不在 SSD 上：专家权重会按需从磁盘读取，机械盘会严重拖慢"
+[ "${rot:-1}" = "0" ] && ok "数据目录在 SSD/NVMe 上" \
+                      || warn "数据目录可能不在 SSD 上：专家权重会按需从磁盘读取，机械盘会严重拖慢"
 
 echo
 echo "== 配置与端口 =="
