@@ -132,9 +132,29 @@ echo "== 配置与端口 =="
 echo "    镜像     = $STRATA_IMAGE"
 echo "    档位     = family=$STRATA_FAMILY model=$STRATA_MODEL"
 echo "    上下文   = $STRATA_CONTEXT   KV = ${STRATA_KV:-int8}"
+echo "    数据目录 = $DATA_DIR"
 echo "    API key  = $(if [ -n "${STRATA_API_KEY:-}" ]; then printf '已设置（%d 字符）' "${#STRATA_API_KEY}"; else printf '未设置：首启自动生成，pixi run strata-key 查看'; fi)"
 if [ "${#STRATA_API_KEY}" -lt 16 ] && [ -n "${STRATA_API_KEY:-}" ]; then
   warn "STRATA_API_KEY 少于 16 字符，Strata 会警告；用 openssl rand -hex 24 生成"
+fi
+
+# 数据目录里已经有模型吗：有就是「启动即用、不再下载」
+mdl_root="$DATA_DIR/Strata-data/models"
+found_models=0
+if [ -d "$mdl_root" ]; then
+  for d in "$mdl_root"/*/; do
+    [ -d "$d" ] || continue
+    n="$(find "$d" -maxdepth 1 -name '*.gguf' 2>/dev/null | wc -l)"
+    [ "$n" -gt 0 ] || continue
+    found_models=1
+    ok "已找到档位 $(basename "$d")：$n 个分片，$(du -sh "$d" 2>/dev/null | cut -f1) → 启动时不会再下载"
+  done
+fi
+if [ "$found_models" = 0 ]; then
+  warn "数据目录里还没有模型分片（$mdl_root）→ 首次 strata-up 会下载 ${STRATA_MODEL}，66–84 GB"
+  if find "$DATA_DIR" -maxdepth 2 -name '*.gguf' 2>/dev/null | grep -q .; then
+    warn "目录里有 GGUF 但不在 Strata-data/models/<档位>/ 下：这种要用 MODEL_PATH 挂载，见 docs/strata.md"
+  fi
 fi
 
 if bash -c "exec 3<>/dev/tcp/127.0.0.1/$STRATA_PORT" 2>/dev/null; then

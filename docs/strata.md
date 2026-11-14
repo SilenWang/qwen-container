@@ -74,6 +74,28 @@ STRATA_DATA_DIR=/mnt/raid/llm_models
 也可以只挂一份 GGUF 分片目录：compose 里加 `- /your/gguf/IQ2_XS:/models:ro`，再设
 `MODEL_PATH=/models`、`MODEL=IQ2_XS`。
 
+确认会不会被重新下载：
+
+```bash
+pixi run strata-preflight
+# 已找到档位 IQ2_XS：2 个分片，66G → 启动时不会再下载
+# 或：数据目录里还没有模型分片 → 首次 strata-up 会下载 IQ2_XS，66–84 GB
+```
+
+### 不用 compose，直接 docker run
+
+```bash
+docker run -d --name qwen38-flash-next --gpus all \
+  -p 127.0.0.1:8081:8080 \
+  --ulimit memlock=-1:-1 --shm-size 2g --stop-timeout 120 \
+  -v /mnt/raid/llm_models:/data \
+  -e FAMILY=qwen -e MODEL=IQ2_XS -e CONTEXT=128k -e KV=int8 \
+  ghcr.io/niko1221/strata:0.2.11-cuda13
+```
+
+`MODEL` 必须和数据目录里的档位一致。不传 `API_KEY` 时会自动生成并存在 `/data/state/api-key`，
+用 `docker exec qwen38-flash-next strata launch --show-key --preset docker` 查看。
+
 ## 注意事项
 
 - **首次启动会下载 66–84 GB（看档位）+ 约 2 GB 预处理包/草稿层**（到数据目录，默认 `./strata-data/`），
