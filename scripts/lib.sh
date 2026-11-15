@@ -2,7 +2,7 @@
 # 项目内 bash 脚本共用的小工具。
 #
 # load_env <项目根目录>
-#   读取 .env，但**不覆盖已存在的环境变量** —— 这样 `MODEL_FILE=xxx pixi run download`
+#   读取 .env，但**不覆盖已存在的环境变量** —— 这样 `STRATA_MODEL=IQ3_S pixi run up`
 #   这种一次性覆盖才不会被 .env 里的值顶掉。
 load_env() {
   local root="$1" file line key value

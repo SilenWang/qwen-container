@@ -1,7 +1,5 @@
-# 模型权重（约 22 GB，由 scripts/download_model.sh 下载）
+# 旧版 llama.cpp 的权重与 KV cache 目录（现在模型都在 strata-data/ 下，保留忽略以免升级时误提交）
 models/
-
-# slot KV cache 落盘目录
 cache/
 
 # 本地配置
@@ -10,10 +8,13 @@ cache/
 # pixi 环境
 .pixi/
 
+# Python 字节码
+__pycache__/
+
 # 临时文件
 *.log
 *.tmp
 .DS_Store
 
-# 模型二（Strata）的数据目录：模型权重 + preset + API key
+# Strata 的数据目录：两个模型的权重、预处理包、preset、API key
 strata-data/
