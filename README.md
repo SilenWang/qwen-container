@@ -29,6 +29,9 @@ pixi run smoke            # 健康检查 + 模型列表 + 一次补全
 
 首次下载超过 1 小时的话，给需要等服务的命令放大超时：`STRATA_READY_TIMEOUT=21600 pixi run smoke`。
 
+默认 30 分钟没有新请求，`idle-unload` 辅助容器会把模型卸载，释放显存和内存；下一次请求自动加载。
+阈值在 `.env` 的 `STRATA_IDLE_UNLOAD_S`（秒，0 = 关闭），日志用 `pixi run idle-logs` 查看。
+
 ## 切换模型
 
 两个模型只是同一服务的两组启动参数，切换不改 compose 结构：

@@ -19,6 +19,8 @@
 | `STRATA_TUNE` | `skip` | `quick` 首启做一次硬件校准（5–20 分钟，只做一次） |
 | `STRATA_PARALLEL` | 空 | 并发数 1–8；空 = 按显卡自动 |
 | `STRATA_RAM_KEEP_GIB` | `0` | 给系统留出的空闲内存（GiB）；跑大档位或机器还要干别的时设 6–8 |
+| `STRATA_IDLE_UNLOAD_S` | `1800` | 空闲释放：多少秒没有新请求就卸载模型（0 = 关闭）；由 `idle-unload` 辅助容器执行 |
+| `STRATA_IDLE_POLL_S` | `60` | 空闲检查间隔（秒）；阈值误差不超过这个值 |
 | `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
 | `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内） |
 | `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com` |
@@ -116,3 +118,5 @@ docker run -d --name qwen-strata --gpus all \
 - **长上下文的第一轮很慢**（prefill 是瓶颈），后续轮次只读增量，几秒内开始。
 - **换 `.env` 后要 `pixi run recreate`**；`pixi run restart` 不会重新读配置。
 - **镜像升级**：`pixi run pull && pixi run recreate`，模型和 preset 保留在数据目录。
+- **空闲释放**：默认 30 分钟没有新请求就卸载模型（`STRATA_IDLE_UNLOAD_S`，0 = 关闭），
+  由 `idle-unload` 辅助容器调用 `POST /unload`；下一次请求会自动加载。日志看 `pixi run idle-logs`。

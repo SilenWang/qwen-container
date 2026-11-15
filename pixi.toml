@@ -20,6 +20,7 @@ down       = { cmd = "docker compose down", description = "停止并移除容器
 stop       = { cmd = "docker compose stop", description = "停止服务（卸载模型，释放显存与内存）" }
 restart    = { cmd = "docker compose restart", description = "重启容器（不会重新读取 .env，改配置请用 recreate）" }
 logs       = { cmd = "docker compose logs -f --tail=200", description = "跟随日志（首次启动看下载进度）" }
+idle-logs  = { cmd = "docker compose logs -f --tail=100 idle-unload", description = "查看空闲释放看门狗日志" }
 ps         = { cmd = "docker compose ps", description = "查看容器状态与健康检查" }
 shell      = { cmd = "docker compose exec strata sh", description = "进入容器" }
 pull       = { cmd = "docker compose pull", description = "拉取 / 更新 Strata 镜像" }
@@ -32,5 +33,6 @@ model-35b   = { cmd = "bash scripts/select_model.sh 35b", description = "切到 
 
 # ---------------- 验收 / 调参 ----------------
 preflight  = { cmd = "bash scripts/preflight.sh", description = "环境自检：docker / GPU 运行时 / 驱动 / 内存 / 磁盘 / 端口 / 已下载模型 / compose 渲染" }
+test       = { cmd = "python scripts/test_idle_unload.py", description = "空闲释放看门狗单元测试" }
 smoke      = { cmd = "python scripts/smoke.py", depends-on = ["up"], description = "冒烟：健康检查 + 模型列表 + 一次 chat 补全 + 吞吐" }
 longctx    = { cmd = "python scripts/longctx.py", depends-on = ["up"], description = "长上下文召回实测：按深度埋 passcode，记录召回与端到端速度" }
