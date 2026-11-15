@@ -3,8 +3,9 @@
 #   Qwen3.8-Flash-Next   FAMILY=qwen     MODEL=IQ2_XS       宿主 127.0.0.1:8080
 #   Qwen3.6-35B-A3B      FAMILY=qwen36   MODEL=UD-Q4_K_XL   宿主 127.0.0.1:8080
 #
-# 两个模型共用这一个服务，没有第二个容器。切换模型就是换下面 environment 里的
-# FAMILY / MODEL / PRESET 三个值，然后重建容器：
+# 两个模型共用这一个服务，没有第二个模型容器（另有一个很小的空闲释放看门狗
+# idle-unload，不占 GPU）。切换模型就是换下面 environment 里的 FAMILY / MODEL /
+# PRESET 三个值，然后重建容器：
 #
 #   pixi run model-35b     # 切到 Qwen3.6-35B-A3B（改写 .env 并重建容器）
 #   pixi run model-flash   # 切回 Qwen3.8-Flash-Next
@@ -82,3 +83,30 @@ services:
     # 停止时要把模型从内存/显存里卸干净，Docker 默认 10s 太短
     stop_grace_period: 2m
     # 健康检查用镜像自带的（GET /v1/models + key），首次下载 / 加载期间显示 starting
+
+  idle-unload:
+    # 默认 30 分钟没有新请求就调用 Strata 的 POST /unload，卸载模型、释放显存和内存；
+    # 下一次请求由 Strata 自动重新加载。STRATA_IDLE_UNLOAD_S=0 关闭。
+    # 和主服务用同一个镜像（不重复下载），只跑 Python，不占 GPU。
+    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.11-cuda13}
+    container_name: qwen-idle-unload
+    restart: on-failure
+    init: true
+    depends_on:
+      strata:
+        condition: service_started
+    entrypoint: ["/opt/strata/terminal/python/bin/python3"]
+    command: ["/opt/qwen/idle_unload.py"]
+    environment:
+      STRATA_URL: http://strata:8080
+      STRATA_IDLE_UNLOAD_S: ${STRATA_IDLE_UNLOAD_S:-1800}
+      STRATA_IDLE_POLL_S: ${STRATA_IDLE_POLL_S:-60}
+      # 留空则读数据目录里的 /data/state/api-key（主服务首启生成的那个）
+      STRATA_API_KEY: ${STRATA_API_KEY:-}
+      STRATA_KEY_FILE: /data/state/api-key
+    volumes:
+      - ${STRATA_DATA_DIR:-./strata-data}:/data:ro
+      - ./scripts/idle_unload.py:/opt/qwen/idle_unload.py:ro
+    # 这个容器没有服务端口，不需要镜像自带的 HTTP 健康检查
+    healthcheck:
+      test: ["NONE"]

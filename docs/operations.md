@@ -33,6 +33,8 @@ pixi run ps            # 容器状态 / 健康检查
 pixi run key           # 打印 API key（要等容器 healthy 之后才有）
 pixi run smoke         # 冒烟：健康检查 + 模型列表 + 一次补全 + 吞吐
 pixi run longctx       # 长上下文召回实测（needle）
+pixi run idle-logs     # 空闲释放看门狗日志
+pixi run test          # 空闲释放看门狗单元测试
 pixi run recreate      # 改了 .env 后按新配置重建容器
 pixi run restart       # 重启（不重读 .env）
 pixi run stop          # 停止（卸载模型，释放显存与内存）
@@ -61,6 +63,26 @@ pixi run longctx -- --depths 4096,16384,32768
 12G 卡一次只加载一个模型，重建容器会先卸载旧模型、释放显存。
 
 只想换档位（例如 Flash-Next 的 `IQ2_XS` → `IQ3_S`）：改 `.env` 的 `STRATA_MODEL`，`pixi run recreate`。
+
+## 空闲释放
+
+默认开启：30 分钟没有新请求就卸载模型，把显存和内存还回去；下一次请求由 Strata 自动重新加载。
+
+实现方式是 `idle-unload` 辅助容器：它每 60 秒查一次 `/v1/status`，如果模型已加载、没有请求在跑，
+且距最后一次请求超过 `STRATA_IDLE_UNLOAD_S` 秒，就调用 Strata 的 `POST /unload`。辅助容器和主服务
+用同一个镜像，不占 GPU，只读数据目录里的 API key（或 `.env` 的 `STRATA_API_KEY`）。
+
+```bash
+# .env
+STRATA_IDLE_UNLOAD_S=1800   # 秒；0 = 关闭
+STRATA_IDLE_POLL_S=60       # 检查间隔；阈值误差不超过这个值
+```
+
+改完 `pixi run recreate`。看它做了什么：`pixi run idle-logs`；`pixi run ps` 里会多一个
+`qwen-idle-unload`。卸载后 `/v1/models` 仍会列出模型（状态 `unloaded`），第一次请求会等模型重新加载。
+释放的是引擎进程的显存和匿名内存；模型文件可能仍留在内核页缓存里（可回收内存），系统需要时会自动让出。
+
+不想用这个辅助容器就设 `STRATA_IDLE_UNLOAD_S=0`；主服务本身不受影响。
 
 ## 数据落在哪
 
