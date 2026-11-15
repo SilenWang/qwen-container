@@ -107,6 +107,9 @@ services:
     container_name: qwen38-flash-next
     profiles: ["strata"]
     restart: unless-stopped
+    # 以宿主机同一 uid/gid 运行：数据目录（/data）归 silen=1000 所有，root 跑会被 Strata
+    # 判成 runtime directory must be owner-only 并退出 2。GPU 设备是 0666，不影响透传。
+    user: "${STRATA_UID:-1000}:${STRATA_GID:-1000}"
     gpus: all
     ports:
       # 和 llama-server 的 8080 错开；只绑回环。Strata 强制要求 API key（无 key 时首启自动生成）
