@@ -1,143 +1,79 @@
-# 本地推理服务，两个模型共用一个 compose 文件（配置说明见 README）：
+# 本地 LLM 推理服务：一个 Strata 服务，两个模型按需切换（说明见 README）。
 #
-#   llama-server  Qwen3.6-35B-A3B    —— llama.cpp 引擎，默认启动，宿主 8080
-#   strata        Qwen3.8-Flash-Next —— Strata 引擎，只在 `--profile strata` 下启动，宿主 8081
+#   Qwen3.8-Flash-Next   FAMILY=qwen     MODEL=IQ2_XS       宿主 127.0.0.1:8080
+#   Qwen3.6-35B-A3B      FAMILY=qwen36   MODEL=UD-Q4_K_XL   宿主 127.0.0.1:8080
 #
-# 12G 卡同一时间只能跑其中一个服务（显存不够），切换时先停掉另一个。
+# 两个模型共用这一个服务，没有第二个模型容器（另有一个很小的空闲释放看门狗
+# idle-unload，不占 GPU）。切换模型就是换下面 environment 里的 FAMILY / MODEL /
+# PRESET 三个值，然后重建容器：
 #
-#   cp .env.example .env     # 按需改配置
-#   pixi run download        # 下载模型一的 GGUF 权重
-#   pixi run up              # 启动模型一
-#   pixi run smoke           # 模型一自检
+#   pixi run model-35b     # 切到 Qwen3.6-35B-A3B（改写 .env 并重建容器）
+#   pixi run model-flash   # 切回 Qwen3.8-Flash-Next
 #
-#   pixi run strata-up       # 启动模型二（首次启动自动下载模型，66–84 GB）
-#   pixi run strata-smoke    # 模型二自检
-name: qwen36-35b-a3b
+# 也可以手改 .env 里的 STRATA_FAMILY / STRATA_MODEL / STRATA_PRESET 再 `pixi run recreate`。
+# 12G 卡同一时间只加载一个模型，所以切换 = 卸载旧模型、加载新模型；两边共用一个数据目录，
+# 权重和 preset 都保留，切回来不会重新下载。
+#
+#   cp .env.example .env
+#   pixi run preflight     # 驱动 / 内存 / 磁盘 / 端口自检
+#   pixi run up            # 启动（首次会下载模型）
+#   pixi run smoke         # 健康检查 + 一次补全
+name: qwen-strata
 
 services:
-  llama-server:
-    # 固定到已验证的 build 号；锁定 digest 见 `pixi run pin-image`
-    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b11146}
-    container_name: qwen36-35b-a3b
-    restart: unless-stopped
-    # NVIDIA GPU 透传（等价 docker run --gpus all）
-    gpus: all
-    ports:
-      # 默认只绑本机回环；需要局域网 / 远程访问时把 BIND_ADDR 改成 0.0.0.0
-      # （服务本身没有鉴权，暴露到公网前请自行加反代 + 认证）
-      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8080}:8080"
-    volumes:
-      - ./models:/models:ro
-      - ./cache:/cache
-    command:
-      - --model
-      - /models/${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf}
-      - --alias
-      - ${MODEL_ALIAS:-qwen3.6-35b-a3b}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8080"
-
-      # ---- 上下文与显存 ----
-      - --ctx-size
-      - "${CTX_SIZE:-131072}"
-      - --n-gpu-layers
-      - "${N_GPU_LAYERS:-99}"
-      # MoE 专家权重留在系统内存的「前 N 层」：12G 卡唯一真正省显存的旋钮
-      # （专家张量占权重的 88%）。用 `pixi run tune-ncmoe` 从 40 往下扫，
-      # 取最后一个能起来的档位再回退一档。默认 28 是按 12G 显存账算的留余量值。
-      - --n-cpu-moe
-      - "${N_CPU_MOE:-28}"
-      # 关掉 --fit 的自动调参：显存按显式参数算，避免「空上下文估得下、填满后 OOM」
-      - --fit
-      - "${FIT:-off}"
-
-      # ---- 长上下文关键项 ----
-      # K/V 量化类型必须一致，否则 CUDA 端 FlashAttention 内核会静默回落到 CPU 后端
-      - --flash-attn
-      - "${FLASH_ATTN:-on}"
-      - --cache-type-k
-      - "${CACHE_TYPE_K:-q8_0}"
-      - --cache-type-v
-      - "${CACHE_TYPE_V:-q8_0}"
-      # 不走 mmap：长 prompt 不会把 page cache 刷掉（none 即旧版的 --no-mmap）
-      - --load-mode
-      - "${LOAD_MODE:-none}"
-
-      # ---- 批 / 线程 / 并发 ----
-      - --batch-size
-      - "${BATCH_SIZE:-2048}"
-      - --ubatch-size
-      - "${UBATCH_SIZE:-1024}"
-      # -1 = 自动（llama.cpp 取物理核心数）；prefill 偏慢时可显式指定
-      - --threads
-      - "${THREADS:--1}"
-      # 1 个 slot 独占整个 128K KV；调大后每个 slot 的上下文会被均分
-      - --parallel
-      - "${PARALLEL:-1}"
-
-      # ---- 服务能力 ----
-      - --jinja
-      - --metrics
-      - --slot-save-path
-      - /cache
-
-      # ---- 可选：多模态（该模型带视觉塔，需先下载 mmproj，见 README）----
-      # - --mmproj
-      # - /models/mmproj-F16.gguf
-
-    healthcheck:
-      # 镜像自带 curl；/health 在模型加载完成后返回 {"status":"ok"}
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 40
-      # --load-mode none 会把整个权重读进内存，22GB 首次加载需要时间
-      start_period: 600s
-  # ============================================================================
-  # 模型二：Qwen3.8-Flash-Next（MoE，512 专家/层，每 token 激活约 10 个；Coder 档保留 256）
-  # 引擎换成 Strata：专家权重按热度在显存 / 内存 / SSD 之间调度，12G 显存可以跑起来。
-  # 只在 `--profile strata` 下启动（`pixi run strata-up`），宿主端口默认 8081。
-  # ============================================================================
   strata:
     # 固定版本 tag（可用 `latest-cuda13`，或换成 0.2.7-cuda13 等已验证版本）
     # cuda13：RTX 20/30/40/50 + 驱动 580+；cuda12：GTX 10 / P100 / V100，或驱动 575–579
     image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.11-cuda13}
-    container_name: qwen38-flash-next
-    profiles: ["strata"]
+    container_name: qwen-strata
     restart: unless-stopped
+    # NVIDIA GPU 透传（等价 docker run --gpus all）
     # 以宿主机同一 uid/gid 运行：数据目录（/data）归 silen=1000 所有，root 跑会被 Strata
     # 判成 runtime directory must be owner-only 并退出 2。GPU 设备是 0666，不影响透传。
     user: "${STRATA_UID:-1000}:${STRATA_GID:-1000}"
     gpus: all
     ports:
-      # 和 llama-server 的 8080 错开；只绑回环。Strata 强制要求 API key（无 key 时首启自动生成）
-      - "${STRATA_BIND_ADDR:-127.0.0.1}:${STRATA_PORT:-8081}:8080"
+      # 默认只绑本机回环；需要局域网 / 远程访问时把 STRATA_BIND_ADDR 改成 0.0.0.0
+      # （服务强制要求 API key，但暴露到公网前仍建议加反代 + 认证）
+      - "${STRATA_BIND_ADDR:-127.0.0.1}:${STRATA_PORT:-8080}:8080"
     volumes:
-      # 模型文件（66–84 GB 下载，看档位；默认再拿约 0.8 GB 的 DFlash2 草稿层）、preset、key 都落在宿主机
+      # 模型（两个模型都在这里）、预处理包、草稿层、preset、API key
       # 默认 ./strata-data；已经下好模型时指过去（如 STRATA_DATA_DIR=/mnt/raid/llm_models），不会再下载
       - ${STRATA_DATA_DIR:-./strata-data}:/data
+      # 可选：已经有一份 GGUF 分片目录时挂进来（默认 ./models），配合 STRATA_MODEL_PATH=/models 使用
+      - ${STRATA_MODEL_HOST_DIR:-./models}:/models:ro
     environment:
-      # qwen = ISTA-DASLab 的原版 Flash-Next 分档；coder / swift 等见 README
+      # ========================================================================
+      # 模型选择：切换模型只改这三项（.env 里由 pixi run model-* 帮你改）
+      #   Flash-Next  ：FAMILY=qwen    MODEL=IQ2_XS       PRESET=flash-next
+      #   35B-A3B     ：FAMILY=qwen36  MODEL=UD-Q4_K_XL   PRESET=qwen36-35b
+      # PRESET 是 Strata 在数据目录里存运行参数的槽位名；两个模型各用一个，
+      # 切来切去不会互相覆盖各自调好的上下文 / 并发设置。
+      # ========================================================================
       FAMILY: ${STRATA_FAMILY:-qwen}
-      # Q2_0 / IQ2_XS / IQ3_XXS / IQ3_S；空 = 由 Strata 按显卡自己选
       MODEL: ${STRATA_MODEL:-IQ2_XS}
+      PRESET: ${STRATA_PRESET:-flash-next}
+      # 上下文：32k / 64k / 128k / 256k，或直接写 token 数
+      # 128k 是 Flash-Next 的实测值；35B-A3B 在 12G 卡上 Strata 建议 32k（显存不够时按卡自动选）
       CONTEXT: ${STRATA_CONTEXT:-128k}
-      # 会话 KV 格式：int8（默认）/ q4_0 / k8v4 / fp16
+      # 已经下好的 GGUF 分片目录（容器内路径，通常 /models）；留空 = 让 Strata 自己下载
+      # 配合 volumes 里的 STRATA_MODEL_HOST_DIR 使用，见 docs/strata.md「复用已经下载好的模型」
+      MODEL_PATH: ${STRATA_MODEL_PATH:-}
+      # 会话 KV 格式：int8（默认）/ q4_0（省一半）/ k8v4 / fp16
       KV: ${STRATA_KV:-int8}
+      # 图片输入：off / on / gpu / cpu（on 会额外下载约 0.9 GB 的图片读取器）
       VISION: ${STRATA_VISION:-off}
-      # quick / thorough / skip：首启是否跑一次硬件校准（结果存进 /data，只跑一次）
+      # 首启是否做硬件校准：quick / thorough / skip（结果存进数据目录，只跑一次）
       TUNE: ${STRATA_TUNE:-skip}
-      # 空 = Strata 按卡自动；1–8
+      # 并发请求数：留空 = 按显卡自动；范围 1–8
       PARALLEL: ${STRATA_PARALLEL:-}
-      # 16 字符以上；留空则首启自动生成，`pixi run strata-key` 查看
+      # 访问用的 API key：16 字符以上；留空则首启自动生成，`pixi run key` 查看
       API_KEY: ${STRATA_API_KEY:-}
-      # 给系统留出的空闲内存（GiB）：0 = 尽量用满（默认）。机器还要跑别的程序时设 6–8
+      # 给系统留出的空闲内存（GiB）：0 = 尽量用满（默认）
       STRATA_RAM_KEEP_GIB: ${STRATA_RAM_KEEP_GIB:-0}
       # 高级引擎参数，空格分隔 KEY=VALUE，等价于 `strata launch --set`（一般留空）
       STRATA_SET: ${STRATA_SET:-}
-      # 模型下载源：空 = HuggingFace（默认）；modelscope = 魔搭（国内同名仓库，路径一致）
+      # 模型下载源：空 = HuggingFace（默认）；modelscope = 魔搭（国内，路径一致）
       STRATA_SOURCE: ${STRATA_SOURCE:-}
       # HuggingFace 镜像站（可选，例如 https://hf-mirror.com）；与 STRATA_SOURCE 二选一
       HF_ENDPOINT: ${HF_ENDPOINT:-}
@@ -149,4 +85,31 @@ services:
     shm_size: 2gb
     # 停止时要把模型从内存/显存里卸干净，Docker 默认 10s 太短
     stop_grace_period: 2m
-    # 健康检查用镜像自带的（GET /v1/models + key），首次下载/加载期间显示 starting
+    # 健康检查用镜像自带的（GET /v1/models + key），首次下载 / 加载期间显示 starting
+
+  idle-unload:
+    # 默认 30 分钟没有新请求就调用 Strata 的 POST /unload，卸载模型、释放显存和内存；
+    # 下一次请求由 Strata 自动重新加载。STRATA_IDLE_UNLOAD_S=0 关闭。
+    # 和主服务用同一个镜像（不重复下载），只跑 Python，不占 GPU。
+    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.11-cuda13}
+    container_name: qwen-idle-unload
+    restart: on-failure
+    init: true
+    depends_on:
+      strata:
+        condition: service_started
+    entrypoint: ["/opt/strata/terminal/python/bin/python3"]
+    command: ["/opt/qwen/idle_unload.py"]
+    environment:
+      STRATA_URL: http://strata:8080
+      STRATA_IDLE_UNLOAD_S: ${STRATA_IDLE_UNLOAD_S:-1800}
+      STRATA_IDLE_POLL_S: ${STRATA_IDLE_POLL_S:-60}
+      # 留空则读数据目录里的 /data/state/api-key（主服务首启生成的那个）
+      STRATA_API_KEY: ${STRATA_API_KEY:-}
+      STRATA_KEY_FILE: /data/state/api-key
+    volumes:
+      - ${STRATA_DATA_DIR:-./strata-data}:/data:ro
+      - ./scripts/idle_unload.py:/opt/qwen/idle_unload.py:ro
+    # 这个容器没有服务端口，不需要镜像自带的 HTTP 健康检查
+    healthcheck:
+      test: ["NONE"]
