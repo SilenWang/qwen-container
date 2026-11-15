@@ -2,108 +2,98 @@
 
 ## 前置条件
 
-| 项目 | 模型一（llama.cpp） | 模型二（Strata） |
-|---|---|---|
-| 系统 | Linux（WSL2 也可） | Linux x86-64（WSL2 可用） |
-| GPU | NVIDIA，12G 显存起步 | NVIDIA RTX 20/30/40/50，12G 显存起（GTX 10 / P100 / V100 用 cuda12 镜像） |
-| 驱动 | 支持 CUDA 12 的驱动 | 580+（cuda13 镜像）/ 575+（cuda12 镜像） |
-| Docker | Docker Engine + `docker compose` v2 + nvidia-container-toolkit | 同左 |
-| pixi | 用于安装依赖与跑任务 | 同左 |
-| CPU | 多核（MoE 专家在内存侧靠 CPU 读） | 支持 AVX2，核心越快越好（专家在 CPU 侧算） |
-| 内存 | 32 GiB 起，建议 48–64 GiB | `IQ2_XS` 需 48 GiB，建议 64 GiB；32 GiB 用 `coder` 档 |
-| 磁盘 | 权重 22.4 GB + 镜像 | 权重 66–84 GB + 镜像 2.2 GB，建议 NVMe |
+| 项目 | 要求 |
+|---|---|
+| 系统 | Linux x86-64（WSL2 可用） |
+| GPU | NVIDIA RTX 20/30/40/50，12G 显存起；GTX 10 / P100 / V100 用 cuda12 镜像 |
+| 驱动 | cuda13 镜像要 580+；cuda12 镜像 575+ |
+| Docker | Docker Engine + `docker compose` v2 + nvidia-container-toolkit |
+| pixi | 用于安装依赖与跑任务 |
+| CPU | 支持 AVX2，核心越快越好（专家在 CPU 侧算） |
+| 内存 | 32 GiB 起；Flash-Next `IQ2_XS` 约需 46 GiB，建议 64 GiB；35B-A3B `UD-Q4_K_XL` 32 GiB 起 |
+| 磁盘 | 数据目录建议 NVMe：Flash-Next 66–84 GB，35B-A3B 约 23 GB（另加预处理包与镜像） |
 
 `docker` 是宿主级服务，无法由 pixi 安装；其余依赖（python / curl / jq）都由 pixi 提供。
 
 ## 环境自检
 
 ```bash
-pixi run preflight          # 模型一：docker / GPU 运行时 / 内存 / 磁盘 / 模型文件
-pixi run strata-preflight   # 模型二：驱动版本 / 内存 / 磁盘 / 端口 / compose 配置
+pixi run preflight
 ```
 
-两个自检互不影响：跑 `strata-preflight` 不会因为模型一的权重没下载而报错。
+检查 docker / GPU 运行时 / 驱动版本 / AVX2 / 内存 / 磁盘 / 端口 / 已下载的模型 / 解析后的容器参数。
+自检会按 `.env` 里当前的模型和档位核算内存与磁盘需求；切换模型后再跑一次即可。
 
 ## 常用任务
 
-模型一：
-
 ```bash
-pixi run download      # 下载 GGUF（断点续传 + 校验大小）
-pixi run up            # 启动容器（会先停模型二）
+pixi run up            # 启动（首次下载当前模型）
 pixi run logs          # 跟随日志
 pixi run ps            # 容器状态 / 健康检查
-pixi run smoke         # 冒烟自检（依赖 up）
-pixi run longctx       # 长上下文阶梯实测（needle 召回 + prefill/decode 吞吐）
-pixi run tune-ncmoe    # 扫 --n-cpu-moe 卸载档位
+pixi run key           # 打印 API key
+pixi run smoke         # 冒烟：健康检查 + 模型列表 + 一次补全 + 吞吐
+pixi run longctx       # 长上下文召回实测（needle）
 pixi run recreate      # 改了 .env 后按新配置重建容器
 pixi run restart       # 重启（不重读 .env）
+pixi run stop          # 停止（卸载模型，释放显存与内存）
+pixi run down          # 停止并移除容器
 pixi run config        # 只看解析后的 compose 配置
-pixi run pin-image     # 打印镜像 digest，便于锁定版本
-pixi run build-image   # 可选：自编译 llama.cpp CUDA 镜像
+pixi run pull          # 更新镜像
+pixi run shell         # 进容器
 ```
 
-模型二：
+`pixi run longctx` 默认按 `.env` 的上下文挑深度（8K / 16K / 32K / 64K 中放得下的），也可以指定：
 
 ```bash
-pixi run strata-preflight  # 环境自检
-pixi run strata-up         # 启动（首次会下载模型；会先停模型一）
-pixi run strata-logs       # 跟随日志
-pixi run strata-ps         # 容器状态 / 健康检查
-pixi run strata-key        # 打印 API key
-pixi run strata-smoke      # 冒烟自检
-pixi run strata-recreate   # 改了 .env 后重建
-pixi run strata-restart    # 重启（不重读 .env）
-pixi run strata-config     # 只看渲染后的配置
-pixi run strata-pull       # 更新镜像
-pixi run strata-shell      # 进容器
-pixi run strata-down       # 停止（卸载模型，释放显存与内存）
+pixi run longctx -- --depths 4096,16384,32768
 ```
-
-两个都停 / 都删：`pixi run down`（带 `--profile strata`，会一并清理模型二）。
 
 ## 模型切换
 
-一块 12G 卡同时跑不了两个模型，所以两条启动命令互相排他：
+一个服务，两套参数。切换只改 `.env` 的三行并重建容器：
 
-| 想跑 | 命令 | 会先停掉 |
+| 想跑 | 命令 | 结果 |
 |---|---|---|
-| 模型一 | `pixi run up` | `strata` 容器 |
-| 模型二 | `pixi run strata-up` | `llama-server` 容器 |
+| Qwen3.6-35B-A3B | `pixi run model-35b` | `FAMILY=qwen36` / `MODEL=UD-Q4_K_XL` / `PRESET=qwen36-35b` |
+| Qwen3.8-Flash-Next | `pixi run model-flash` | `FAMILY=qwen` / `MODEL=IQ2_XS` / `PRESET=flash-next` |
 
-只停不停另一个：`pixi run down`（两个都停）、`pixi run strata-down`（只停模型二）。
+两个模型共用一个数据目录：权重、预处理包、各自的 preset 都保留，切回来不用重新下载。
+12G 卡一次只加载一个模型，重建容器会先卸载旧模型、释放显存。
+
+只想换档位（例如 Flash-Next 的 `IQ2_XS` → `IQ3_S`）：改 `.env` 的 `STRATA_MODEL`，`pixi run recreate`。
 
 ## 数据落在哪
 
 | 内容 | 路径 | 说明 |
 |---|---|---|
-| 模型一权重 | `./models/` | `pixi run download` 下载；容器只读挂载到 `/models` |
-| 模型一 KV cache | `./cache/` | 容器内 `/cache`，`--slot-save-path` |
-| 模型二数据 | `./strata-data/`（可用 `STRATA_DATA_DIR` 改） | 模型、预处理包、preset、API key；容器内 `/data` |
+| 模型权重（两个模型） | `./strata-data/Strata-data/models/<档位>/` | 首启自动下载；可用 `STRATA_DATA_DIR` 换位置 |
+| 预处理包 + 草稿层 | `./strata-data/Strata-data/packs/` | 本地生成，约 2 GB |
+| preset（运行参数 / 调参结果） | `./strata-data/state/` | 每个模型一个 preset，切换互不覆盖 |
+| API key | `./strata-data/state/api-key` | 首启自动生成，`pixi run key` 查看 |
 
-三者都在 `.gitignore` 里，不会提交；删容器或换镜像都不会丢。
+这些都在 `.gitignore` 里，不会提交；删容器或换镜像都不会丢。
 
 ## 排障
 
-**模型一起不来，日志说找不到模型文件**：`./models` 里没有 GGUF，先 `pixi run download`。
+**起不来，日志说找不到模型文件**：数据目录里没有对应档位的 GGUF。如果是手动放的模型，按
+[docs/strata.md](strata.md#复用已经下载好的模型) 指 `STRATA_DATA_DIR` 或用 `MODEL_PATH`；否则让它自己下载。
 
-**端口被占用**：模型一改 `PORT`，模型二改 `STRATA_PORT`，改完 `recreate`。
+**端口被占用**：改 `.env` 的 `STRATA_PORT`，改完 `pixi run recreate`。
 
-**模型二报 “The engine in this image does not match this computer's graphics card” 或启动即退出**：镜像档位与驱动不匹配 ——
+**报 “The engine in this image does not match this computer's graphics card” 或启动即退出**：镜像档位与驱动不匹配 ——
 cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12` 镜像
 （`STRATA_IMAGE=ghcr.io/niko1221/strata:0.2.11-cuda12`）。
 
-**模型二一直 `starting`**：首次启动在下载 66–84 GB 模型，看 `pixi run strata-logs` 的进度；
-下载可断点续传，中断后重新 `strata-up` 会接着下。
+**一直 `starting`**：首次启动在下载模型，看 `pixi run logs` 的进度；下载可断点续传，中断后重新
+`pixi run up` 会接着下。
 
-**整机卡住 / 内存被吃满**：Strata 要往内存里装 30–50 GB，首次加载 1–3 分钟机器很卡属正常；
-长期不够就换小档（`Q2_0` / coder）或在 `.env` 设 `STRATA_RAM_KEEP_GIB=8` 给系统留内存。
+**切了模型但服务还是旧的**：`.env` 改了没重建容器。`pixi run recreate`；`restart` 不重读配置。
 
-**模型二很慢、磁盘灯常亮**：内存不足，专家在从 SSD 读。换小档，或确认 `./strata-data`
-（`STRATA_DATA_DIR`）在 NVMe 上。
+**整机卡住 / 内存被吃满**：Strata 要往内存里装几十 GB，首次加载 1–3 分钟机器很卡属正常；
+长期不够就换小档（Flash-Next 用 `Q2_0` / `coder`，35B-A3B 用 `UD-Q4_K_XL`）或在 `.env` 设
+`STRATA_RAM_KEEP_GIB=8` 给系统留内存。
 
-**改了 `.env` 不生效**：两个服务都要 `recreate`（`pixi run recreate` / `pixi run strata-recreate`），
-`restart` 不会重新读 `.env`。
+**很慢、磁盘灯常亮**：内存不足，专家在从 SSD 读。换小档，或确认数据目录（`STRATA_DATA_DIR`）在 NVMe 上。
 
-**模型一 128K 首轮特别慢**：prefill 是瓶颈，属预期；长会话尽量复用上下文，或用
-`pixi run longctx` 实测召回与吞吐。
+**长上下文首轮特别慢**：prefill 是瓶颈，属预期；长会话尽量复用上下文，或用 `pixi run longctx`
+实测召回与端到端速度。
