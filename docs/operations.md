@@ -30,7 +30,7 @@ pixi run preflight
 pixi run up            # 启动（首次下载当前模型）
 pixi run logs          # 跟随日志
 pixi run ps            # 容器状态 / 健康检查
-pixi run key           # 打印 API key
+pixi run key           # 打印 API key（要等容器 healthy 之后才有）
 pixi run smoke         # 冒烟：健康检查 + 模型列表 + 一次补全 + 吞吐
 pixi run longctx       # 长上下文召回实测（needle）
 pixi run recreate      # 改了 .env 后按新配置重建容器
@@ -68,8 +68,8 @@ pixi run longctx -- --depths 4096,16384,32768
 |---|---|---|
 | 模型权重（两个模型） | `./strata-data/Strata-data/models/<档位>/` | 首启自动下载；可用 `STRATA_DATA_DIR` 换位置 |
 | 预处理包 + 草稿层 | `./strata-data/Strata-data/packs/` | 本地生成，约 2 GB |
-| preset（运行参数 / 调参结果） | `./strata-data/state/` | 每个模型一个 preset，切换互不覆盖 |
-| API key | `./strata-data/state/api-key` | 首启自动生成，`pixi run key` 查看 |
+| preset（运行参数 / 调参结果） | `./strata-data/config/strata/launch-presets/` | 每个模型一个 preset，切换互不覆盖 |
+| API key | `./strata-data/state/api-key` | 首启自动生成，`pixi run key` 查看（要等 healthy） |
 
 这些都在 `.gitignore` 里，不会提交；删容器或换镜像都不会丢。
 
@@ -86,6 +86,16 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 
 **一直 `starting`**：首次启动在下载模型，看 `pixi run logs` 的进度；下载可断点续传，中断后重新
 `pixi run up` 会接着下。
+
+**`pixi run key` 报 “There is no API key for that launch”**：容器还在下载 / 加载，key 要到服务跑起来才生成。
+等 `pixi run ps` 显示 `healthy` 再取；想自己定 key 就在 `.env` 里设 `STRATA_API_KEY`（16 字符以上）。
+
+**`pixi run smoke` 报“服务在 3600s 内没有就绪”**：首启下载可能超过 1 小时。
+`STRATA_READY_TIMEOUT=21600 pixi run smoke` 放大等待时间，或者先 `pixi run ps` 等到 healthy 再跑。
+
+**`smoke` / `longctx` 说“返回内容为空”**：模型把 max_tokens 用在了思考段。脚本默认已用
+`chat_template_kwargs.enable_thinking=false` 关掉思考，并在正文为空时自动放大预算重试一次；
+仍为空就调大 `SMOKE_MAX_TOKENS` / `LONGCTX_MAX_TOKENS`。
 
 **切了模型但服务还是旧的**：`.env` 改了没重建容器。`pixi run recreate`；`restart` 不重读配置。
 

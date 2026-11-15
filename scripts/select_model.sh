@@ -17,6 +17,7 @@ case "${1:-}" in
     MODEL=IQ2_XS
     PRESET=flash-next
     CTX_HINT=128k
+    OTHER_CTX=32k
     LABEL="Qwen3.8-Flash-Next（qwen / IQ2_XS）"
     ;;
   35b)
@@ -24,6 +25,7 @@ case "${1:-}" in
     MODEL=UD-Q4_K_XL
     PRESET=qwen36-35b
     CTX_HINT=32k
+    OTHER_CTX=128k
     LABEL="Qwen3.6-35B-A3B（qwen36 / UD-Q4_K_XL）"
     ;;
   *)
@@ -50,13 +52,20 @@ set_env STRATA_FAMILY "$FAMILY"
 set_env STRATA_MODEL "$MODEL"
 set_env STRATA_PRESET "$PRESET"
 
-# 上下文只在没设置时给默认值，不动用户自己调过的值
+# 上下文只在没设置时给默认值；仍是模板默认值（128k）时按模型改写，避免 35B 在 12G 卡上直接 OOM
+template_ctx="$(grep '^STRATA_CONTEXT=' .env.example | cut -d= -f2-)"
 if ! grep -q '^STRATA_CONTEXT=.\+' .env; then
   set_env STRATA_CONTEXT "$CTX_HINT"
   echo "上下文未设置，按 $MODEL 的常用值写入 STRATA_CONTEXT=$CTX_HINT（显存紧张可调小）"
 else
   cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2-)"
-  if [ "$cur_ctx" != "$CTX_HINT" ]; then
+  if [ "$cur_ctx" = "$template_ctx" ] && [ "$cur_ctx" != "$CTX_HINT" ]; then
+    set_env STRATA_CONTEXT "$CTX_HINT"
+    echo "上下文还是模板默认值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
+  elif [ "$cur_ctx" = "$OTHER_CTX" ] && [ "$cur_ctx" != "$CTX_HINT" ]; then
+    set_env STRATA_CONTEXT "$CTX_HINT"
+    echo "上下文是另一个模型的常用值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
+  elif [ "$cur_ctx" != "$CTX_HINT" ]; then
     echo "注意：当前 STRATA_CONTEXT=$cur_ctx，$MODEL 的常用值是 $CTX_HINT（显存不够会 OOM，够用就可以保留）"
   fi
 fi

@@ -18,7 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import client as c  # noqa: E402
 
 PROMPT = os.environ.get("SMOKE_PROMPT", "用一句话解释 MoE（混合专家）模型为什么省显存。")
-MAX_TOKENS = int(os.environ.get("SMOKE_MAX_TOKENS", "96"))
+# 关掉思考后 256 足够；万一模板不认 enable_thinking、思考段吃光预算，会再按 RETRY_TOKENS 重试一次
+MAX_TOKENS = int(os.environ.get("SMOKE_MAX_TOKENS", "256"))
+RETRY_TOKENS = int(os.environ.get("SMOKE_RETRY_TOKENS", "1024"))
 
 
 def main() -> int:
@@ -59,19 +61,24 @@ def main() -> int:
     started = time.time()
     try:
         resp = c.chat(PROMPT, MAX_TOKENS, key=key, model=model_id)
+        content = c.completion_text(resp)
+        if not content:
+            # 思考段仍可能吃光预算（模板 / 版本不认 enable_thinking）：放大重试一次再判
+            print(f"      正文为空，按 {RETRY_TOKENS} tok 重试一次（思考段可能吃掉了预算）")
+            resp = c.chat(PROMPT, RETRY_TOKENS, key=key, model=model_id)
+            content = c.completion_text(resp)
     except urllib.error.HTTPError as exc:
         print(f"      !! HTTP {exc.code}：{exc.read().decode('utf-8', 'replace')[:300]}")
         return 1
     wall = time.time() - started
 
-    content = c.completion_text(resp)
     reasoning = ((resp.get("choices") or [{}])[0].get("message") or {}).get("reasoning_content") or ""
     if reasoning:
         print(f"      思考：{reasoning[:120]!r}{' …' if len(reasoning) > 120 else ''}")
     print(f"      内容：{content[:200]!r}")
     if not content:
         ok = False
-        print("      !! 返回内容为空（可能只输出到 max_tokens 里的思考段，调大 SMOKE_MAX_TOKENS）")
+        print("      !! 返回内容为空：思考段吃光了 max_tokens（调大 SMOKE_MAX_TOKENS / SMOKE_RETRY_TOKENS）")
 
     print("[4/4] 吞吐")
     usage = resp.get("usage") or {}

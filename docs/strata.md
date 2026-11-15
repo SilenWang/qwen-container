@@ -24,6 +24,8 @@
 | `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com` |
 | `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进数据目录 |
 | `STRATA_DATA_DIR` | `./strata-data` | 宿主机数据目录（挂到容器 `/data`）；已下好模型时指过去可避免重复下载 |
+| `STRATA_MODEL_HOST_DIR` | `./models` | 已经有一份 GGUF 分片目录时，宿主机上的目录（挂到容器 `/models`） |
+| `STRATA_MODEL_PATH` | 空 | 容器内的分片目录（通常 `/models`）；留空 = 让 Strata 自己下载 |
 | `STRATA_BIND_ADDR` / `STRATA_PORT` | `127.0.0.1` / `8080` | 只绑本机；对外暴露时务必换成自己设的 key |
 
 ## 模型从哪下载
@@ -61,8 +63,17 @@ STRATA_DATA_DIR=/mnt/raid/llm_models
 目录里应是 Strata 自己的布局（`Strata-data/models/<档位>/…gguf`、`Strata-data/packs/…`），
 这样 `pixi run up` 直接加载、不再下载。
 
-也可以只挂一份 GGUF 分片目录：compose 里加 `- /your/gguf/IQ2_XS:/models:ro`，再设
-`MODEL_PATH=/models`、`MODEL=IQ2_XS`。
+也可以只挂一份 GGUF 分片目录（分片直接放在这个目录里，不是再套一层子目录）：
+
+```bash
+# .env
+STRATA_MODEL_HOST_DIR=/srv/gguf/IQ2_XS    # 宿主机目录，挂到容器的 /models（只读）
+STRATA_MODEL_PATH=/models                 # 容器内路径
+STRATA_MODEL=IQ2_XS                       # 和数据目录 / 分片对应的档位
+```
+
+`docker-compose.yml` 已经透传 `MODEL_PATH`，改完 `.env` 直接 `pixi run recreate`。
+`STRATA_MODEL_PATH` 不设而只设 `STRATA_MODEL_HOST_DIR` 的话，Strata 会忽略挂进来的目录、照常下载。
 
 确认会不会被重新下载：
 
@@ -89,6 +100,10 @@ docker run -d --name qwen-strata --gpus all \
 
 ## 注意事项
 
+- **key 要等服务跑起来**：首启下载 / 加载期间还没有 key，`pixi run key` 会报 “There is no API key for that launch”；
+  等 `pixi run ps` 显示 `healthy` 再取。想固定 key 就在 `.env` 设 `STRATA_API_KEY`（16 字符以上），首启就会用它。
+- **等服务的超时**：`pixi run smoke` / `pixi run longctx` 默认等 1 小时（`STRATA_READY_TIMEOUT` 秒）；
+  首启下载更久就 `STRATA_READY_TIMEOUT=21600 pixi run smoke`。
 - **首次启动会下载模型**（Flash-Next 66–84 GB / 35B-A3B 约 23 GB）+ 预处理包/草稿层，到数据目录。
   这期间 `docker ps` 显示 `starting`（不是 unhealthy），进度看 `pixi run logs`。
   下载可断点续传，中断后重新 `pixi run up` 会接着下。磁盘建议 SSD/NVMe —— 专家权重会按需从盘上读。

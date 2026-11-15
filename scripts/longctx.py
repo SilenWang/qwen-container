@@ -28,10 +28,13 @@ FILLER = (
     "Nothing unusual happened for weeks, which was exactly how the keeper preferred it. "
 )
 QUESTION = "上面这份文档里记录的 vault passcode 是什么？只回答 passcode 本身，不要解释。"
-MAX_TOKENS = int(os.environ.get("LONGCTX_MAX_TOKENS", "32"))
+# 关掉思考后 64 tok 足够回答一个 passcode；万一模板不认 enable_thinking，按 RETRY_TOKENS 重试一次
+MAX_TOKENS = int(os.environ.get("LONGCTX_MAX_TOKENS", "64"))
+RETRY_TOKENS = int(os.environ.get("LONGCTX_RETRY_TOKENS", "512"))
 NEEDLE_DEPTH = float(os.environ.get("NEEDLE_DEPTH", "0.5"))
-# 英文 filler 的经验比例；实际 token 数用响应的 usage.prompt_tokens 回读
-CHARS_PER_TOKEN = float(os.environ.get("CHARS_PER_TOKEN", "3.8"))
+# filler 的字符/token 比例，实测约 4.6；每个深度跑完会用 usage.prompt_tokens 自动校正
+CHARS_PER_TOKEN = float(os.environ.get("CHARS_PER_TOKEN", "4.6"))
+chars_per_token = CHARS_PER_TOKEN
 
 
 def context_tokens() -> int:
@@ -51,8 +54,8 @@ def make_code() -> str:
     return "ZX-{}-{}".format(random.randint(1000, 9999), random.randint(1000, 9999))
 
 
-def build_prompt(budget_tokens: int, needle: str) -> str:
-    chars = max(64, int(budget_tokens * CHARS_PER_TOKEN))
+def build_prompt(budget_tokens: int, needle: str, cpt: float) -> str:
+    chars = max(64, int(budget_tokens * cpt))
     body = (FILLER * (chars // len(FILLER) + 1))[:chars]
     pos = body.find(" ", int(len(body) * NEEDLE_DEPTH))
     pos = pos + 1 if pos != -1 else len(body) // 2
@@ -60,21 +63,32 @@ def build_prompt(budget_tokens: int, needle: str) -> str:
 
 
 def run_depth(depth: int, ctx: int, key: str, model: str) -> dict:
+    global chars_per_token
     needle_code = make_code()
     needle = f"IMPORTANT: the vault passcode for this document is {needle_code}."
     budget = min(depth, ctx - MAX_TOKENS - 512)
-    prompt = build_prompt(budget, needle)
+    prompt = build_prompt(budget, needle, chars_per_token)
 
     print(f"  → 深度 {depth}：约 {budget} tok（needle 在 {NEEDLE_DEPTH:.0%} 处），发起请求 ...", flush=True)
     started = time.time()
     resp = c.chat(prompt, MAX_TOKENS, key=key, model=model)
-    wall = time.time() - started
     answer = c.completion_text(resp)
+    if not answer:
+        # 思考段吃光预算时正文为空，会误判成「未召回」：放大预算重试一次
+        print(f"      正文为空，按 {RETRY_TOKENS} tok 重试一次（思考段可能吃掉了预算）")
+        resp = c.chat(prompt, RETRY_TOKENS, key=key, model=model)
+        answer = c.completion_text(resp)
+    wall = time.time() - started
     usage = resp.get("usage") or {}
+
+    # 用实际 prompt token 数回读比例，后续深度更贴近目标
+    actual = usage.get("prompt_tokens") or 0
+    if actual and budget:
+        chars_per_token = max(2.0, min(8.0, chars_per_token * budget / actual))
 
     return {
         "target": depth,
-        "prompt_n": usage.get("prompt_tokens") or 0,
+        "prompt_n": actual,
         "completion_n": usage.get("completion_tokens") or 0,
         "wall_s": wall,
         "code": needle_code,

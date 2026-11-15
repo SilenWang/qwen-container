@@ -36,6 +36,8 @@ services:
       # 模型（两个模型都在这里）、预处理包、草稿层、preset、API key
       # 默认 ./strata-data；已经下好模型时指过去（如 STRATA_DATA_DIR=/mnt/raid/llm_models），不会再下载
       - ${STRATA_DATA_DIR:-./strata-data}:/data
+      # 可选：已经有一份 GGUF 分片目录时挂进来（默认 ./models），配合 STRATA_MODEL_PATH=/models 使用
+      - ${STRATA_MODEL_HOST_DIR:-./models}:/models:ro
     environment:
       # ========================================================================
       # 模型选择：切换模型只改这三项（.env 里由 pixi run model-* 帮你改）
@@ -50,6 +52,9 @@ services:
       # 上下文：32k / 64k / 128k / 256k，或直接写 token 数
       # 128k 是 Flash-Next 的实测值；35B-A3B 在 12G 卡上 Strata 建议 32k（显存不够时按卡自动选）
       CONTEXT: ${STRATA_CONTEXT:-128k}
+      # 已经下好的 GGUF 分片目录（容器内路径，通常 /models）；留空 = 让 Strata 自己下载
+      # 配合 volumes 里的 STRATA_MODEL_HOST_DIR 使用，见 docs/strata.md「复用已经下载好的模型」
+      MODEL_PATH: ${STRATA_MODEL_PATH:-}
       # 会话 KV 格式：int8（默认）/ q4_0（省一半）/ k8v4 / fp16
       KV: ${STRATA_KV:-int8}
       # 图片输入：off / on / gpu / cpu（on 会额外下载约 0.9 GB 的图片读取器）

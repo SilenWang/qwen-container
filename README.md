@@ -22,9 +22,12 @@ OpenAI / Anthropic 兼容的本地模型服务。引擎是 [Strata](https://gith
 cp .env.example .env      # 可选：改端口 / 档位 / 上下文 / 下载源
 pixi run preflight        # 驱动 / 内存 / 磁盘 / 端口自检
 pixi run up               # 启动（首次下载模型，进度看 pixi run logs）
-pixi run key              # 没在 .env 里设 key 时，打印自动生成的 key
+pixi run ps               # 等到 STATUS 显示 healthy（首次下载 68 GB，可能要几小时）
+pixi run key              # 没在 .env 里设 key 时，打印自动生成的 key（下载期间还没有 key）
 pixi run smoke            # 健康检查 + 模型列表 + 一次补全
 ```
+
+首次下载超过 1 小时的话，给需要等服务的命令放大超时：`STRATA_READY_TIMEOUT=21600 pixi run smoke`。
 
 ## 切换模型
 
@@ -38,6 +41,18 @@ pixi run model-flash      # 切回 Qwen3.8-Flash-Next
 也可以手改 `.env` 里的 `STRATA_FAMILY` / `STRATA_MODEL` / `STRATA_PRESET`，再 `pixi run recreate`。
 12G 卡一次只加载一个模型，切换就是卸载旧模型、加载新模型；两个模型共用一个数据目录，
 已下载的权重和各自的 preset 都保留，切回来不会重新下载。
+
+## 从旧版本升级
+
+旧版本跑两个容器（`qwen36-35b-a3b` + `qwen38-flash-next`），新版只有一个 `qwen-strata`，默认都用 8080，
+旧容器不删会撞端口：
+
+```bash
+docker rm -f qwen36-35b-a3b qwen38-flash-next   # 先停掉旧服务（数据在卷里，不会丢）
+pixi run up
+```
+
+旧版的 `models/`、`cache/` 不再使用；模型、预处理包和 preset 都在 `strata-data/` 下。
 
 ## 项目里有什么
 

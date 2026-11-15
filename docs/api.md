@@ -9,7 +9,7 @@
 | 鉴权 | `Authorization: Bearer <key>`（`/health` 不需要） |
 | 模型名 | 从 `GET /v1/models` 取（当前加载的模型） |
 
-key 在 `.env` 的 `STRATA_API_KEY`；留空时由首启自动生成，用 `pixi run key` 查看。
+key 在 `.env` 的 `STRATA_API_KEY`；留空时由首启自动生成，等 `pixi run ps` 显示 healthy 后用 `pixi run key` 查看。
 
 ## curl 示例
 

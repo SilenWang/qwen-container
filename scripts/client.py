@@ -70,9 +70,9 @@ def request(path: str, key: str = "", payload: dict | None = None, timeout: floa
 
 
 def wait_ready(timeout: float | None = None) -> float:
-    """等 /health 返回 200。首次启动要下载模型，可能很久。"""
+    """等 /health 返回 200。首次启动要下载模型，可能很久（默认 1 小时，可用 STRATA_READY_TIMEOUT 调）。"""
     if timeout is None:
-        timeout = float(os.environ.get("STRATA_READY_TIMEOUT", "900"))
+        timeout = float(os.environ.get("STRATA_READY_TIMEOUT", "3600"))
     started = time.time()
     last = ""
     last_note = 0.0
@@ -98,15 +98,24 @@ def model_ids(key: str) -> list[str]:
     return [m.get("id") for m in models if isinstance(m, dict) and m.get("id")]
 
 
-def chat(prompt: str, max_tokens: int = 96, key: str = "", model: str = "strata",
-         timeout: float = 600) -> dict:
-    return request("/v1/chat/completions", key, {
+def chat(prompt: str, max_tokens: int = 256, key: str = "", model: str = "strata",
+         timeout: float = 600, disable_thinking: bool = True) -> dict:
+    """发一次 chat 补全。
+
+    Flash-Next / 35B-A3B 默认会先输出思考段：思考会把 max_tokens 吃光，正文（content）
+    变成空字符串，短回复的脚本就会误判失败。所以默认用 chat_template_kwargs 关掉思考，
+    短 max_tokens 也能直接拿到正文。确实需要思考段时传 disable_thinking=False。
+    """
+    payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": 0,
         "stream": False,
-    }, timeout=timeout)
+    }
+    if disable_thinking:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    return request("/v1/chat/completions", key, payload, timeout=timeout)
 
 
 def completion_text(resp: dict) -> str:

@@ -23,7 +23,7 @@ logs       = { cmd = "docker compose logs -f --tail=200", description = "跟随�
 ps         = { cmd = "docker compose ps", description = "查看容器状态与健康检查" }
 shell      = { cmd = "docker compose exec strata sh", description = "进入容器" }
 pull       = { cmd = "docker compose pull", description = "拉取 / 更新 Strata 镜像" }
-key        = { cmd = "docker compose exec -T strata sh -c 'strata launch --show-key --preset \"$PRESET\"'", description = "打印 API key（未在 .env 设置时由首启自动生成）" }
+key        = { cmd = "docker compose exec -T strata sh -c 'strata launch --show-key --preset \"$PRESET\" || { echo \"还没有 key：容器可能还在下载/加载，等 pixi run ps 显示 healthy 再试\" >&2; exit 1; }'", description = "打印 API key（首启自动生成；要等容器 healthy 之后才有）" }
 
 # ---------------- 选模型 ----------------
 # 同一个服务，切换模型 = 改 .env 的 FAMILY / MODEL / PRESET 并重建容器。
