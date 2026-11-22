@@ -1,6 +1,6 @@
 # 模型与档位
 
-一个 Strata 服务，两套模型参数（切换方式见 [README](../README.md)）。这一页写两个模型是什么、
+一个 Strata 服务，四套模型参数（切换方式见 [README](../README.md)）。这一页写各模型是什么、
 需要多少资源、档位之间差多少。
 
 ## Qwen3.8-Flash-Next
@@ -76,3 +76,68 @@
 它**不**走 Flash-Next 的 pack 机制：`MODEL` 直接对应 Unsloth 的档位名，`STRATA_FAMILY` 必须写成 `qwen36`。
 
 > Intel Arc 与 Mac 引擎不支持这个家族；NVIDIA / AMD 可用。
+
+## Inkling 2 Mini（Thinking Machines Lab）
+
+Strata 0.2.19 新增的 `strata-inkling` 引擎（0.1.65）。26.4B 参数、每 token 激活 3.4B（中间层循环 3 次，
+按 48 次虚拟访问算 5.4B），支持 1M 上下文、文字 + 图片输入、OpenAI 兼容的 tool calling。
+
+| 项目 | 值 |
+|---|---|
+| 权重来源 | `strata-engine/Inkling-2-Mini-Strata`（HuggingFace，**魔搭没有这个仓库**） |
+| 启动参数 | `STRATA_FAMILY=inkling-2-mini` + `STRATA_MODEL=SQ-10` |
+| 分档 | `SQ-10`（默认）/ `SQ-15` / `SQ-20` |
+| 上下文 | 默认 32K；可选 8K / 32K / 64K / 128K / 256K（模型本身最长 1M） |
+| 显存 / 内存 | 12 GiB 卡 + 16 GiB 内存起；`SQ-10` 在 12G 卡上整份放进显存 |
+| 磁盘 | 11–20 GB（含默认可选的 Vision 分片 0.64 GB） |
+| 并发 | `STRATA_PARALLEL` 可到 64，默认 1 |
+| 草稿层 | 内置 DSpark Block-8，无需另配 |
+
+| 档位 | 下载 | 推荐显卡 | 启动需内存 | 与原模型一致率 |
+|---|---:|---:|---:|---:|
+| `SQ-10` | 10.47 GB | 12 GiB（也支持 8 GiB / 780M / Strix Point iGPU） | 16 GiB | 92.35% |
+| `SQ-15` | 14.35 GB | 16 GiB；12 GiB 卡 + 24 GiB 内存走 hybrid | 24 GiB | 96.68% |
+| `SQ-20` | 19.35 GB | 24 GiB 卡 / 32 GiB 统一内存 | 32 GiB | 100%（逐位一致） |
+
+选择建议：
+
+- 本项目默认的 12G 卡 → `SQ-10`：整份模型在显存里，32K 上下文下还有余量
+- 16G 卡 → `SQ-15`，质量明显更好
+- 24G 卡 / 统一内存 32 GiB 以上 → `SQ-20`，和原模型逐位一致
+- 想看图片：`.env` 设 `STRATA_VISION=on`，多下 0.64 GB，12G 卡上图片读取器跑 CPU
+
+> 显存内加载未在本仓库实测（开发机 `nvidia-smi` 报 NVML 错误、没有可用 GPU）。
+> 上表的显存 / 内存数字来自官方模型卡与 Strata 0.2.19 的 `inkling_fit` 规则，
+> 下载体积与 `strata launch --plan` 的输出一致（镜像内已核对）。
+
+## Tencent Hy4-Flash（大内存可选档，不是默认）
+
+Strata 0.2.18 新增的 `strata-hy4` 引擎。220B 总参数（每 token 激活 12B，另有 64B 的 Engram 查表层），
+支持 1M 上下文、文字 + 图片。**门槛是内存，不是显存**：最低 64 GiB 内存 + 8 GiB 显卡。
+
+| 项目 | 值 |
+|---|---|
+| 权重来源 | `strata-engine/Hy4-Flash-Strata`（HuggingFace，**魔搭没有这个仓库**） |
+| 启动参数 | `STRATA_FAMILY=hy4-flash` + `STRATA_MODEL=SQ-64` |
+| 分档 | `SQ-64`（默认）/ `SQ-96` / `SQ-128`，名字里的数字就是需要的内存（GiB） |
+| 上下文 | 默认 128K；可选 8K / 32K / 64K / 128K |
+| 显存 / 内存 | 8 / 12 / 16 GiB 显卡 + 64 GiB 内存起 |
+| 磁盘 | 130–181 GB，建议 NVMe（Engram 每一层都要随机读） |
+| 并发 | `STRATA_PARALLEL` 在 Hy4 上固定为 1（引擎内置 DFly2 投机解码） |
+| 草稿层 | 内置 DFly2，无需另配 |
+
+| 档位 | 下载（含 Engram + Vision） | 启动需内存 | 推理 KL（越低越好） |
+|---|---:|---:|---:|
+| `SQ-64` | 129.61 GB | 64 GiB | 0.232 |
+| `SQ-96` | 157.16 GB | 96 GiB | 0.136 |
+| `SQ-128` | 181.23 GB | 128 GiB | 0.088（最接近 BF16） |
+
+- 每个档位都必须配同一份 `Hy4-Flash-Engram-Q8.strata`（67.58 GB）；它常驻内存做查表，不占显存。
+- 12G 卡 + 64 GiB 内存可以跑 `SQ-64`（128K 上下文下显卡里只放 0.6 GB 专家，其余从内存 / SSD 取）；
+  8 GiB 卡也能起来，但会有一部分权重走 SSD，明显变慢。
+- **不要把它当默认档**：130 GB 下载 + 64 GiB 内存对家用 12G 卡机器偏重；日常用 Inkling `SQ-10` 或
+  Flash-Next `IQ2_XS`。
+
+> 显存内加载未实测（同上：开发机无可用 GPU）。数字来自官方 release notes / 模型卡，
+> 以及 Strata 0.2.19 镜像里 `hy4_family.FILES` 与 `strata launch --plan --family hy4-flash --model SQ-64`
+> 的输出（130.5 GB 下载、128K、图默认开）。

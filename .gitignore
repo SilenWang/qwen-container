@@ -16,5 +16,5 @@ __pycache__/
 *.tmp
 .DS_Store
 
-# Strata 的数据目录：两个模型的权重、预处理包、preset、API key
+# Strata 的数据目录：所有模型的权重、预处理包、preset、API key
 strata-data/
