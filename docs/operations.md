@@ -10,8 +10,8 @@
 | Docker | Docker Engine + `docker compose` v2 + nvidia-container-toolkit |
 | pixi | 用于安装依赖与跑任务 |
 | CPU | 支持 AVX2，核心越快越好（专家在 CPU 侧算） |
-| 内存 | 32 GiB 起；Flash-Next `IQ2_XS` 约需 46 GiB，建议 64 GiB；35B-A3B `UD-Q4_K_XL` 32 GiB 起 |
-| 磁盘 | 数据目录建议 NVMe：Flash-Next 66–84 GB，35B-A3B 约 23 GB（另加预处理包与镜像） |
+| 内存 | 32 GiB 起；Flash-Next `IQ2_XS` 约需 46 GiB，建议 64 GiB；35B-A3B `UD-Q4_K_XL` 32 GiB 起；Inkling `SQ-10` 16 GiB 起 |
+| 磁盘 | 数据目录建议 NVMe：Flash-Next 66–84 GB，35B-A3B 约 23 GB，Inkling 11–20 GB（另加预处理包与镜像） |
 
 `docker` 是宿主级服务，无法由 pixi 安装；其余依赖（python / curl / jq）都由 pixi 提供。
 
@@ -56,10 +56,13 @@ pixi run longctx -- --depths 4096,16384,32768
 
 | 想跑 | 命令 | 结果 |
 |---|---|---|
+| Qwen3.8-Flash-Next（默认） | `pixi run model-flash` | `FAMILY=qwen` / `MODEL=IQ2_XS` / `PRESET=flash-next` |
 | Qwen3.6-35B-A3B | `pixi run model-35b` | `FAMILY=qwen36` / `MODEL=UD-Q4_K_XL` / `PRESET=qwen36-35b` |
-| Qwen3.8-Flash-Next | `pixi run model-flash` | `FAMILY=qwen` / `MODEL=IQ2_XS` / `PRESET=flash-next` |
+| Inkling 2 Mini | `pixi run model-inkling` | `FAMILY=inkling-2-mini` / `MODEL=SQ-10` / `PRESET=inkling-2-mini` |
 
-两个模型共用一个数据目录：权重、预处理包、各自的 preset 都保留，切回来不用重新下载。
+所有模型共用一个数据目录：权重、预处理包、各自的 preset 都保留，切回来不用重新下载。
+Inkling 2 Mini 走魔搭（`resolve/master`）或 HuggingFace，下载源配置见
+[strata.md](strata.md#国内网络modelscope-或-hf-镜像)。
 12G 卡一次只加载一个模型，重建容器会先卸载旧模型、释放显存。
 
 只想换档位（例如 Flash-Next 的 `IQ2_XS` → `IQ3_S`）：改 `.env` 的 `STRATA_MODEL`，`pixi run recreate`。
@@ -88,7 +91,7 @@ STRATA_IDLE_POLL_S=60       # 检查间隔；阈值误差不超过这个值
 
 | 内容 | 路径 | 说明 |
 |---|---|---|
-| 模型权重（两个模型） | `./strata-data/Strata-data/models/<档位>/` | 首启自动下载；可用 `STRATA_DATA_DIR` 换位置 |
+| 模型权重（所有模型） | Qwen：`./strata-data/Strata-data/models/<档位>/`；Inkling：`./strata-data/Strata-data/models/inkling-2-mini/` | 首启自动下载；可用 `STRATA_DATA_DIR` 换位置 |
 | 预处理包 + 草稿层 | `./strata-data/Strata-data/packs/` | 本地生成，约 2 GB |
 | preset（运行参数 / 调参结果） | `./strata-data/config/strata/launch-presets/` | 每个模型一个 preset，切换互不覆盖 |
 | API key | `./strata-data/state/api-key` | 首启自动生成，`pixi run key` 查看（要等 healthy） |
@@ -104,7 +107,7 @@ STRATA_IDLE_POLL_S=60       # 检查间隔；阈值误差不超过这个值
 
 **报 “The engine in this image does not match this computer's graphics card” 或启动即退出**：镜像档位与驱动不匹配 ——
 cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12` 镜像
-（`STRATA_IMAGE=ghcr.io/niko1221/strata:0.2.11-cuda12`）。
+（`STRATA_IMAGE=ghcr.io/niko1221/strata:0.2.19-cuda12`）。
 
 **一直 `starting`**：首次启动在下载模型，看 `pixi run logs` 的进度；下载可断点续传，中断后重新
 `pixi run up` 会接着下。
@@ -120,6 +123,10 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 仍为空就调大 `SMOKE_MAX_TOKENS` / `LONGCTX_MAX_TOKENS`。
 
 **切了模型但服务还是旧的**：`.env` 改了没重建容器。`pixi run recreate`；`restart` 不重读配置。
+
+**镜像升到 0.2.19 后第一次切到 Inkling 2 Mini**：镜像自带 `strata-inkling` 引擎，
+不需要另装；切换只会下载模型包。老镜像（0.2.11）不认这个 family，`FAMILY` 写 `inkling-2-mini` 会报模型不存在 ——
+先 `pixi run pull` 再 `pixi run recreate`。
 
 **整机卡住 / 内存被吃满**：Strata 要往内存里装几十 GB，首次加载 1–3 分钟机器很卡属正常；
 长期不够就换小档（Flash-Next 用 `Q2_0` / `coder`，35B-A3B 用 `UD-Q4_K_XL`）或在 `.env` 设
