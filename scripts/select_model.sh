@@ -4,7 +4,6 @@
 #   pixi run model-flash     # Qwen3.8-Flash-Next（默认）
 #   pixi run model-35b       # Qwen3.6-35B-A3B
 #   pixi run model-inkling   # Inkling 2 Mini（12G 卡 100% 显存）
-#   pixi run model-hy-flash  # Tencent Hy4-Flash（需 64 GiB 起内存，可选大内存档）
 #
 # 所有模型共用一个 Strata 服务和一个数据目录；切换只是换容器启动参数，
 # 已下载的权重和各自的 preset 都留着，切回来不会重新下载。
@@ -41,16 +40,8 @@ case "${1:-}" in
     LABEL="Inkling 2 Mini（inkling-2-mini / SQ-10）"
     NOTE="下载约 10.5 GB，12G 卡整份放进显存，内存 16 GiB 起；仅 HuggingFace（魔搭无此仓库）"
     ;;
-  hy-flash)
-    FAMILY=hy4-flash
-    MODEL=SQ-64
-    PRESET=hy4-flash
-    CTX_HINT=128k
-    LABEL="Tencent Hy4-Flash（hy4-flash / SQ-64）"
-    NOTE="下载约 130 GB（含 67.6 GB Engram），需要 64 GiB 内存；仅 HuggingFace（魔搭无此仓库）。不是默认档"
-    ;;
   *)
-    echo "用法：$0 flash|35b|inkling|hy-flash" >&2
+    echo "用法：$0 flash|35b|inkling" >&2
     exit 2
     ;;
 esac

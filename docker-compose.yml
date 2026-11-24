@@ -1,9 +1,8 @@
-# 本地 LLM 推理服务：一个 Strata 服务，多个模型按需切换（说明见 README）。
+# 本地 LLM 推理服务：一个 Strata 服务，三个模型按需切换（说明见 README）。
 #
 #   Qwen3.8-Flash-Next   FAMILY=qwen            MODEL=IQ2_XS       宿主 127.0.0.1:8080
 #   Qwen3.6-35B-A3B      FAMILY=qwen36          MODEL=UD-Q4_K_XL   宿主 127.0.0.1:8080
 #   Inkling 2 Mini       FAMILY=inkling-2-mini  MODEL=SQ-10        宿主 127.0.0.1:8080
-#   Hy4-Flash（大内存）  FAMILY=hy4-flash       MODEL=SQ-64        宿主 127.0.0.1:8080
 #
 # 所有模型共用这一个服务，没有第二个模型容器（另有一个很小的空闲释放看门狗
 # idle-unload，不占 GPU）。切换模型就是换下面 environment 里的 FAMILY / MODEL /
@@ -11,7 +10,6 @@
 #
 #   pixi run model-35b       # 切到 Qwen3.6-35B-A3B（改写 .env 并重建容器）
 #   pixi run model-inkling   # 切到 Inkling 2 Mini（12G 卡推荐档）
-#   pixi run model-hy-flash  # 切到 Hy4-Flash（需 64 GiB 起内存，不是默认档）
 #   pixi run model-flash     # 切回 Qwen3.8-Flash-Next
 #
 # 也可以手改 .env 里的 STRATA_FAMILY / STRATA_MODEL / STRATA_PRESET 再 `pixi run recreate`。
@@ -49,7 +47,6 @@ services:
       #   Flash-Next  ：FAMILY=qwen            MODEL=IQ2_XS      PRESET=flash-next
       #   35B-A3B     ：FAMILY=qwen36          MODEL=UD-Q4_K_XL  PRESET=qwen36-35b
       #   Inkling 2 Mini：FAMILY=inkling-2-mini MODEL=SQ-10      PRESET=inkling-2-mini
-      #   Hy4-Flash   ：FAMILY=hy4-flash       MODEL=SQ-64       PRESET=hy4-flash
       # PRESET 是 Strata 在数据目录里存运行参数的槽位名；每个模型各用一个，
       # 切来切去不会互相覆盖各自调好的上下文 / 并发设置。
       # ========================================================================
@@ -58,7 +55,7 @@ services:
       PRESET: ${STRATA_PRESET:-flash-next}
       # 上下文：32k / 64k / 128k / 256k，或直接写 token 数
       # 128k 是 Flash-Next 的实测值；35B-A3B 在 12G 卡上 Strata 建议 32k（显存不够时按卡自动选）
-      # Hy4-Flash 默认 128k（可选 8k/32k/64k/128k）；Inkling 2 Mini 默认 32k（可到 256k，最长 1M）
+      # Inkling 2 Mini 默认 32k（可到 256k，最长 1M）
       CONTEXT: ${STRATA_CONTEXT:-128k}
       # 已经下好的 GGUF 分片目录（容器内路径，通常 /models）；留空 = 让 Strata 自己下载
       # 配合 volumes 里的 STRATA_MODEL_HOST_DIR 使用，见 docs/strata.md「复用已经下载好的模型」
@@ -78,15 +75,14 @@ services:
       # 高级引擎参数，空格分隔 KEY=VALUE，等价于 `strata launch --set`（一般留空）
       STRATA_SET: ${STRATA_SET:-}
       # 模型下载源：空 = HuggingFace（默认）；modelscope = 魔搭（国内，路径一致）
-      # 只作用于 Qwen 家族。Inkling / Hy4-Flash 在魔搭没有仓库，见下面的两个 *_SOURCE
+      # 只作用于 Qwen 家族。Inkling 在魔搭没有仓库，见下面的 STRATA_INKLING_SOURCE
       STRATA_SOURCE: ${STRATA_SOURCE:-}
       # HuggingFace 镜像站（可选，例如 https://hf-mirror.com）；与 STRATA_SOURCE 二选一
       HF_ENDPOINT: ${HF_ENDPOINT:-}
-      # Inkling 2 Mini / Hy4-Flash 的下载源：这两家不走 STRATA_SOURCE / HF_ENDPOINT，
+      # Inkling 2 Mini 的下载源：不走 STRATA_SOURCE / HF_ENDPOINT，
       # 默认从 huggingface.co 的 strata-engine/<仓库> 取；国内可写镜像站的完整 base，例如
       # https://hf-mirror.com/strata-engine/Inkling-2-Mini-Strata/resolve/main
       STRATA_INKLING_SOURCE: ${STRATA_INKLING_SOURCE:-}
-      STRATA_HY4_SOURCE: ${STRATA_HY4_SOURCE:-}
     ulimits:
       # 引擎会把几十 GB 内存锁页（mlock），不加这个会退化成更慢的路径
       memlock:

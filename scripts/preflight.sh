@@ -47,7 +47,6 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     ok "宿主 GPU：$gpu"
     vram_mib="$(printf '%s' "$gpu" | awk -F', ' '{print $2}' | tr -dc '0-9')"
     case "$STRATA_FAMILY" in
-      hy4-flash)      vram_floor=8000 ;;
       inkling-2-mini) vram_floor=4000 ;;
       *)              vram_floor=12000 ;;
     esac
@@ -97,7 +96,7 @@ awk '/MemTotal/{printf "  内存总量：%.1f GiB\n", $2/1048576}' /proc/meminfo
 
 # 各档位启动时要放进内存的专家权重 + 下载体积（GB），每个家族一张表。
 # ram_reserve：Qwen 两档的 need_ram 只是权重侧占用，另留 8 GiB 系统余量；
-# Hy4-Flash / Inkling 的官方数字已是整机内存门槛，不再加余量。
+# Inkling 的官方数字已是整机内存门槛，不再加余量。
 ram_reserve=8
 case "$STRATA_FAMILY" in
   qwen36)
@@ -106,16 +105,6 @@ case "$STRATA_FAMILY" in
       UD-Q6_K_XL) need_ram=44; need_disk=33 ;;
       Q8_0)       need_ram=52; need_disk=38 ;;
       *)          need_ram=0;  need_disk=0 ;;
-    esac
-    ;;
-  hy4-flash)
-    # 数字就是官方给的整机内存门槛；下载含 67.6 GB Engram（+0.93 GB Vision）
-    ram_reserve=0
-    case "$(printf '%s' "$STRATA_MODEL" | tr 'a-z' 'A-Z')" in
-      SQ-64)  need_ram=64;  need_disk=130 ;;
-      SQ-96)  need_ram=96;  need_disk=157 ;;
-      SQ-128) need_ram=128; need_disk=181 ;;
-      *)      need_ram=0;   need_disk=0 ;;
     esac
     ;;
   inkling-2-mini)
@@ -189,7 +178,7 @@ mdl_root="$DATA_DIR/Strata-data/models"
 if [ -d "$mdl_root" ]; then
   for d in "$mdl_root"/*/; do
     [ -d "$d" ] || continue
-    # Qwen 家族按档位存 GGUF 分片；Inkling / Hy4-Flash 按家族存 .strata 包
+    # Qwen 家族按档位存 GGUF 分片；Inkling 按家族存 .strata 包
     n="$(find "$d" -maxdepth 1 -name '*.gguf' 2>/dev/null | wc -l)"
     if [ "$n" -gt 0 ]; then what="$n 个分片"
     else
