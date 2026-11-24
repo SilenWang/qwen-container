@@ -47,13 +47,17 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     ok "宿主 GPU：$gpu"
     vram_mib="$(printf '%s' "$gpu" | awk -F', ' '{print $2}' | tr -dc '0-9')"
     case "$STRATA_FAMILY" in
-      inkling-2-mini) vram_floor=4000 ;;
+      # Inkling SQ-10 官方最低 8 GiB；12 GiB 才整份进显存
+      inkling-2-mini) vram_floor=8000 ;;
       *)              vram_floor=12000 ;;
     esac
     if [ "${vram_mib:-0}" -lt "$vram_floor" ]; then
       warn "显存 ${vram_mib} MiB：$STRATA_FAMILY 建议 ${vram_floor} MiB 起，小卡请换更小的档位"
     else
       ok "显存 ${vram_mib} MiB（$STRATA_FAMILY 建议 ${vram_floor} MiB 起）"
+    fi
+    if [ "$STRATA_FAMILY" = "inkling-2-mini" ] && [ "${vram_mib:-0}" -ge 8000 ] && [ "${vram_mib:-0}" -lt 12000 ]; then
+      warn "显存 ${vram_mib} MiB 能跑 Inkling SQ-10，但不足 12 GiB：部分专家会留在内存 / SSD（streaming），比整份进显存慢"
     fi
     driver="$(printf '%s' "$gpu" | awk -F', ' '{print $3}' | tr -dc '0-9.')"
   else
@@ -111,7 +115,7 @@ case "$STRATA_FAMILY" in
     # 12 GiB 卡跑 SQ-10 是整份放进显存；SQ-15/SQ-20 需要更大的卡或统一内存
     ram_reserve=0
     case "$(printf '%s' "$STRATA_MODEL" | tr 'a-z' 'A-Z')" in
-      SQ-10) need_ram=12; need_disk=11 ;;
+      SQ-10) need_ram=16; need_disk=11 ;;
       SQ-15) need_ram=24; need_disk=15 ;;
       SQ-20) need_ram=32; need_disk=20 ;;
       *)     need_ram=0;  need_disk=0 ;;

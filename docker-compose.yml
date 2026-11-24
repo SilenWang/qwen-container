@@ -75,13 +75,14 @@ services:
       # 高级引擎参数，空格分隔 KEY=VALUE，等价于 `strata launch --set`（一般留空）
       STRATA_SET: ${STRATA_SET:-}
       # 模型下载源：空 = HuggingFace（默认）；modelscope = 魔搭（国内，路径一致）
-      # 只作用于 Qwen 家族。Inkling 在魔搭没有仓库，见下面的 STRATA_INKLING_SOURCE
+      # 只作用于 Qwen 家族；Inkling 用下面的 STRATA_INKLING_SOURCE 单独指定
       STRATA_SOURCE: ${STRATA_SOURCE:-}
       # HuggingFace 镜像站（可选，例如 https://hf-mirror.com）；与 STRATA_SOURCE 二选一
       HF_ENDPOINT: ${HF_ENDPOINT:-}
-      # Inkling 2 Mini 的下载源：不走 STRATA_SOURCE / HF_ENDPOINT，
-      # 默认从 huggingface.co 的 strata-engine/<仓库> 取；国内可写镜像站的完整 base，例如
-      # https://hf-mirror.com/strata-engine/Inkling-2-Mini-Strata/resolve/main
+      # Inkling 2 Mini 的下载源：不走 STRATA_SOURCE / HF_ENDPOINT，要单独指完整 base。
+      # 留空 = huggingface.co/strata-engine/Inkling-2-Mini-Strata/resolve/main
+      # 国内推荐魔搭（分支是 resolve/master）：
+      #   https://www.modelscope.cn/models/strata-engine/Inkling-2-Mini-Strata/resolve/master
       STRATA_INKLING_SOURCE: ${STRATA_INKLING_SOURCE:-}
     ulimits:
       # 引擎会把几十 GB 内存锁页（mlock），不加这个会退化成更慢的路径

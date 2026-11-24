@@ -45,8 +45,8 @@ pixi run model-flash      # 切回 Qwen3.8-Flash-Next（默认）
 已下载的权重和各自的 preset（`flash-next` / `qwen36-35b` / `inkling-2-mini`）都保留，
 切回来不会重新下载。
 
-> Inkling 2 Mini 在魔搭没有仓库，只能走 HuggingFace（国内可给
-> `STRATA_INKLING_SOURCE` 指一个 HF 镜像 base，见 [docs/strata.md](docs/strata.md)）。
+> Inkling 2 Mini 支持魔搭与 HuggingFace（国内推荐魔搭，注意 `resolve/master`），
+> 下载源用 `STRATA_INKLING_SOURCE` 指定，见 [docs/strata.md](docs/strata.md)。
 
 ## 从旧版本升级
 

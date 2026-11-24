@@ -24,7 +24,7 @@
 | `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
 | `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内）。**只作用于 Qwen 家族** |
 | `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com`。**只作用于 Qwen 家族** |
-| `STRATA_INKLING_SOURCE` | 空 | Inkling 2 Mini 的下载 base（完整 URL）；空 = `https://huggingface.co/strata-engine/Inkling-2-Mini-Strata/resolve/main` |
+| `STRATA_INKLING_SOURCE` | 空 | Inkling 2 Mini 的下载 base（完整 URL）；空 = `https://huggingface.co/strata-engine/Inkling-2-Mini-Strata/resolve/main`。魔搭的 base 见[国内网络](#国内网络modelscope-或-hf-镜像) |
 | `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进数据目录 |
 | `STRATA_DATA_DIR` | `./strata-data` | 宿主机数据目录（挂到容器 `/data`）；已下好模型时指过去可避免重复下载 |
 | `STRATA_MODEL_HOST_DIR` | `./models` | 已经有一份 GGUF 分片目录时，宿主机上的目录（挂到容器 `/models`） |
@@ -56,16 +56,19 @@ Qwen 两档两选一，都写在 `.env` 里，改完 `pixi run recreate`：
   上 `IQ2_XS/` 两个分片都在（39.2 + 28.8 GB）。ModelScope 提供的是仓库当前文件，下载后会按它公布的 SHA-256 校验。
 - **HF 镜像站**：`HF_ENDPOINT=https://hf-mirror.com`（仍按 pinned revision 下载并校验）。
 
-**Inkling 2 Mini 目前只有 HuggingFace**：`strata-engine/Inkling-2-Mini-Strata` 在魔搭不存在
-（2026-11 核对：`modelscope.cn` 返回 record not found），`STRATA_SOURCE=modelscope` 与 `HF_ENDPOINT`
-对它都不生效。国内网络请单独指一个 HF 镜像 base：
+**Inkling 2 Mini 也能走魔搭**：`strata-engine/Inkling-2-Mini-Strata` 在魔搭已有同名仓库
+（2026-11-23 建仓，`SHA256SUMS.txt` 与 HuggingFace 一致）。它不受 `STRATA_SOURCE` / `HF_ENDPOINT` 控制，
+要单独指一个 base：
 
 ```bash
-# .env
-STRATA_INKLING_SOURCE=https://hf-mirror.com/strata-engine/Inkling-2-Mini-Strata/resolve/main
+# .env —— 魔搭（国内推荐；注意分支是 resolve/master，不是 main）
+STRATA_INKLING_SOURCE=https://www.modelscope.cn/models/strata-engine/Inkling-2-Mini-Strata/resolve/master
+
+# 或 HuggingFace 镜像站
+# STRATA_INKLING_SOURCE=https://hf-mirror.com/strata-engine/Inkling-2-Mini-Strata/resolve/main
 ```
 
-不写这个变量就从官方 `huggingface.co` 取（`strata-engine/...`）。下载支持断点续传；
+不写这个变量就从官方 `huggingface.co` 取（`strata-engine/.../resolve/main`）。下载支持断点续传；
 已下好的文件不会因为换源重下，但换档位会另下。
 
 ### 复用已经下载好的模型

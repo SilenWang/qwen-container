@@ -61,7 +61,7 @@ pixi run longctx -- --depths 4096,16384,32768
 | Inkling 2 Mini | `pixi run model-inkling` | `FAMILY=inkling-2-mini` / `MODEL=SQ-10` / `PRESET=inkling-2-mini` |
 
 所有模型共用一个数据目录：权重、预处理包、各自的 preset 都保留，切回来不用重新下载。
-Inkling 2 Mini 只能从 HuggingFace 下载（魔搭没有这个仓库），国内网络见
+Inkling 2 Mini 走魔搭（`resolve/master`）或 HuggingFace，下载源配置见
 [strata.md](strata.md#国内网络modelscope-或-hf-镜像)。
 12G 卡一次只加载一个模型，重建容器会先卸载旧模型、释放显存。
 

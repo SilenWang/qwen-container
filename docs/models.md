@@ -79,12 +79,13 @@
 
 ## Inkling 2 Mini（Thinking Machines Lab）
 
-Strata 0.2.19 新增的 `strata-inkling` 引擎（0.1.65）。26.4B 参数、每 token 激活 3.4B（中间层循环 3 次，
+Strata 0.2.19 新增的 `strata-inkling` 引擎（镜像内首发 0.1.65，首启会自动升级到 0.1.67，另下约 440 MB）。
+26.4B 参数、每 token 激活 3.4B（中间层循环 3 次，
 按 48 次虚拟访问算 5.4B），支持 1M 上下文、文字 + 图片输入、OpenAI 兼容的 tool calling。
 
 | 项目 | 值 |
 |---|---|
-| 权重来源 | `strata-engine/Inkling-2-Mini-Strata`（HuggingFace，**魔搭没有这个仓库**） |
+| 权重来源 | `strata-engine/Inkling-2-Mini-Strata`（HuggingFace / 魔搭均有，见 [strata.md](strata.md#国内网络modelscope-或-hf-镜像)） |
 | 启动参数 | `STRATA_FAMILY=inkling-2-mini` + `STRATA_MODEL=SQ-10` |
 | 分档 | `SQ-10`（默认）/ `SQ-15` / `SQ-20` |
 | 上下文 | 默认 32K；可选 8K / 32K / 64K / 128K / 256K（模型本身最长 1M） |
