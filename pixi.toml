@@ -30,6 +30,7 @@ key        = { cmd = "docker compose exec -T strata sh -c 'strata launch --show-
 # 同一个服务，切换模型 = 改 .env 的 FAMILY / MODEL / PRESET 并重建容器。
 model-flash = { cmd = "bash scripts/select_model.sh flash", description = "切到 Qwen3.8-Flash-Next（qwen / IQ2_XS）并重建容器" }
 model-35b   = { cmd = "bash scripts/select_model.sh 35b", description = "切到 Qwen3.6-35B-A3B（qwen36 / UD-Q4_K_XL）并重建容器" }
+model-inkling   = { cmd = "bash scripts/select_model.sh inkling", description = "切到 Inkling 2 Mini（inkling-2-mini / SQ-10，12G 卡整份放进显存）并重建容器" }
 
 # ---------------- 验收 / 调参 ----------------
 preflight  = { cmd = "bash scripts/preflight.sh", description = "环境自检：docker / GPU 运行时 / 驱动 / 内存 / 磁盘 / 端口 / 已下载模型 / compose 渲染" }

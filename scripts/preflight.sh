@@ -20,7 +20,7 @@ bad()  { printf '  \033[31m✗\033[0m %s\n' "$*"; fails=$((fails + 1)); }
 # ver_ge A B：A >= B 时返回 0（按版本号比较，如 580.65.06 vs 580）
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 
-STRATA_IMAGE="${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.11-cuda13}"
+STRATA_IMAGE="${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.19-cuda13}"
 STRATA_PORT="${STRATA_PORT:-8080}"
 STRATA_BIND_ADDR="${STRATA_BIND_ADDR:-127.0.0.1}"
 STRATA_FAMILY="${STRATA_FAMILY:-qwen}"
@@ -46,8 +46,19 @@ if command -v nvidia-smi >/dev/null 2>&1; then
      && printf '%s' "$gpu" | grep -q 'MiB\|GiB'; then
     ok "宿主 GPU：$gpu"
     vram_mib="$(printf '%s' "$gpu" | awk -F', ' '{print $2}' | tr -dc '0-9')"
-    [ "${vram_mib:-0}" -lt 12000 ] && warn "显存 ${vram_mib} MiB：Strata 要求 12 GB 起，小卡请换更小的档位" \
-                                   || ok "显存 ${vram_mib} MiB（12 GB 起可用）"
+    case "$STRATA_FAMILY" in
+      # Inkling SQ-10 官方最低 8 GiB；12 GiB 才整份进显存
+      inkling-2-mini) vram_floor=8000 ;;
+      *)              vram_floor=12000 ;;
+    esac
+    if [ "${vram_mib:-0}" -lt "$vram_floor" ]; then
+      warn "显存 ${vram_mib} MiB：$STRATA_FAMILY 建议 ${vram_floor} MiB 起，小卡请换更小的档位"
+    else
+      ok "显存 ${vram_mib} MiB（$STRATA_FAMILY 建议 ${vram_floor} MiB 起）"
+    fi
+    if [ "$STRATA_FAMILY" = "inkling-2-mini" ] && [ "${vram_mib:-0}" -ge 8000 ] && [ "${vram_mib:-0}" -lt 12000 ]; then
+      warn "显存 ${vram_mib} MiB 能跑 Inkling SQ-10，但不足 12 GiB：部分专家会留在内存 / SSD（streaming），比整份进显存慢"
+    fi
     driver="$(printf '%s' "$gpu" | awk -F', ' '{print $3}' | tr -dc '0-9.')"
   else
     warn "nvidia-smi 执行失败：$(printf '%s' "$gpu" | head -1)"
@@ -87,7 +98,10 @@ grep -qw avx2 /proc/cpuinfo 2>/dev/null && ok "CPU 支持 AVX2（引擎按 AVX2 
 mem_gib="$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo)"
 awk '/MemTotal/{printf "  内存总量：%.1f GiB\n", $2/1048576}' /proc/meminfo
 
-# 各档位启动时要放进内存的专家权重 + 下载体积（GB），两个模型各一张表
+# 各档位启动时要放进内存的专家权重 + 下载体积（GB），每个家族一张表。
+# ram_reserve：Qwen 两档的 need_ram 只是权重侧占用，另留 8 GiB 系统余量；
+# Inkling 的官方数字已是整机内存门槛，不再加余量。
+ram_reserve=8
 case "$STRATA_FAMILY" in
   qwen36)
     case "$(printf '%s' "$STRATA_MODEL" | tr 'a-z' 'A-Z')" in
@@ -95,6 +109,16 @@ case "$STRATA_FAMILY" in
       UD-Q6_K_XL) need_ram=44; need_disk=33 ;;
       Q8_0)       need_ram=52; need_disk=38 ;;
       *)          need_ram=0;  need_disk=0 ;;
+    esac
+    ;;
+  inkling-2-mini)
+    # 12 GiB 卡跑 SQ-10 是整份放进显存；SQ-15/SQ-20 需要更大的卡或统一内存
+    ram_reserve=0
+    case "$(printf '%s' "$STRATA_MODEL" | tr 'a-z' 'A-Z')" in
+      SQ-10) need_ram=16; need_disk=11 ;;
+      SQ-15) need_ram=24; need_disk=15 ;;
+      SQ-20) need_ram=32; need_disk=20 ;;
+      *)     need_ram=0;  need_disk=0 ;;
     esac
     ;;
   *)
@@ -110,8 +134,8 @@ case "$STRATA_FAMILY" in
 esac
 
 if [ "$need_ram" -gt 0 ]; then
-  if [ "$mem_gib" -ge "$((need_ram + 8))" ]; then
-    ok "内存 ${mem_gib} GiB 满足 $STRATA_MODEL（约需 ${need_ram} GiB）"
+  if [ "$mem_gib" -ge "$((need_ram + ram_reserve))" ]; then
+    ok "内存 ${mem_gib} GiB 满足 $STRATA_MODEL（约需 ${need_ram} GiB$([ "$ram_reserve" -gt 0 ] && printf ' + 系统余量')）"
   elif [ "$mem_gib" -ge "$need_ram" ]; then
     warn "内存 ${mem_gib} GiB 跑 $STRATA_MODEL 偏紧（约需 ${need_ram} GiB + 系统余量）"
   else
@@ -158,10 +182,16 @@ mdl_root="$DATA_DIR/Strata-data/models"
 if [ -d "$mdl_root" ]; then
   for d in "$mdl_root"/*/; do
     [ -d "$d" ] || continue
+    # Qwen 家族按档位存 GGUF 分片；Inkling 按家族存 .strata 包
     n="$(find "$d" -maxdepth 1 -name '*.gguf' 2>/dev/null | wc -l)"
+    if [ "$n" -gt 0 ]; then what="$n 个分片"
+    else
+      n="$(find "$d" -maxdepth 1 -name '*.strata' 2>/dev/null | wc -l)"
+      what="$n 个 .strata 包"
+    fi
     [ "$n" -gt 0 ] || continue
     found_models=1
-    ok "已下载 $(basename "$d")：$n 个分片，$(du -sh "$d" 2>/dev/null | cut -f1) → 启动时不会再下载"
+    ok "已下载 $(basename "$d")：$what，$(du -sh "$d" 2>/dev/null | cut -f1) → 启动时不会再下载"
   done
 fi
 if [ "$found_models" = 0 ]; then

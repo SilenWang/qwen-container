@@ -1,7 +1,7 @@
 # Strata 服务
 
 服务名 `strata`，容器名 `qwen-strata`，默认端口 `127.0.0.1:8080`。一个服务里跑一个模型：
-用 `STRATA_FAMILY` / `STRATA_MODEL` 选哪一个（两套值见 [README](../README.md)）。
+用 `STRATA_FAMILY` / `STRATA_MODEL` 选哪一个（各档位见 [README](../README.md) 和 [models.md](models.md)）。
 
 ## 关键运行参数
 
@@ -9,11 +9,11 @@
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `STRATA_FAMILY` | `qwen` | `qwen` = Flash-Next 的 ISTA-DASLab 原版分档；`qwen36` = Qwen3.6-35B-A3B；另有 `unsloth` / `coder` / `swift` 等 |
-| `STRATA_MODEL` | `IQ2_XS` | 档位名；Flash-Next 用 `Q2_0` / `IQ2_XS` / `IQ3_XXS` / `IQ3_S`，35B-A3B 用 `UD-Q4_K_XL` / `UD-Q6_K_XL` / `Q8_0`；留空由 Strata 按显卡自选 |
-| `STRATA_PRESET` | `flash-next` | Strata 在数据目录里保存运行参数的槽位名；两个模型各用一个，切换不会互相覆盖 |
-| `STRATA_IMAGE` | `ghcr.io/niko1221/strata:0.2.11-cuda13` | cuda13 要驱动 580+；GTX 10 / P100 / V100 或驱动 575–579 用 `cuda12` |
-| `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k |
+| `STRATA_FAMILY` | `qwen` | `qwen` = Flash-Next 的 ISTA-DASLab 原版分档；`qwen36` = Qwen3.6-35B-A3B；`inkling-2-mini` = Inkling 2 Mini；另有 `unsloth` / `coder` / `swift` 等 |
+| `STRATA_MODEL` | `IQ2_XS` | 档位名；Flash-Next 用 `Q2_0` / `IQ2_XS` / `IQ3_XXS` / `IQ3_S`，35B-A3B 用 `UD-Q4_K_XL` / `UD-Q6_K_XL` / `Q8_0`，Inkling 用 `SQ-10` / `SQ-15` / `SQ-20`；留空由 Strata 按显卡自选 |
+| `STRATA_PRESET` | `flash-next` | Strata 在数据目录里保存运行参数的槽位名；每个模型各用一个，切换不会互相覆盖 |
+| `STRATA_IMAGE` | `ghcr.io/niko1221/strata:0.2.19-cuda13` | cuda13 要驱动 580+；GTX 10 / P100 / V100 或驱动 575–579 用 `cuda12`。0.2.19 起镜像带 `strata-inkling` 引擎 |
+| `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k，Inkling 常用 32k（可到 256k） |
 | `STRATA_KV` | `int8` | 会话 KV 格式；`q4_0` 省一半内存 |
 | `STRATA_VISION` | `off` | 图片输入；`on` 会多下约 0.9 GB 的读取器（12G 卡上跑 CPU） |
 | `STRATA_TUNE` | `skip` | `quick` 首启做一次硬件校准（5–20 分钟，只做一次） |
@@ -22,8 +22,9 @@
 | `STRATA_IDLE_UNLOAD_S` | `1800` | 空闲释放：多少秒没有新请求就卸载模型（0 = 关闭）；由 `idle-unload` 辅助容器执行 |
 | `STRATA_IDLE_POLL_S` | `60` | 空闲检查间隔（秒）；阈值误差不超过这个值 |
 | `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
-| `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内） |
-| `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com` |
+| `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内）。**只作用于 Qwen 家族** |
+| `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com`。**只作用于 Qwen 家族** |
+| `STRATA_INKLING_SOURCE` | 空 | Inkling 2 Mini 的下载 base（完整 URL）；空 = `https://huggingface.co/strata-engine/Inkling-2-Mini-Strata/resolve/main`。魔搭的 base 见[国内网络](#国内网络modelscope-或-hf-镜像) |
 | `STRATA_API_KEY` | 空 | 16 字符以上；空 = 首启自动生成并存进数据目录 |
 | `STRATA_DATA_DIR` | `./strata-data` | 宿主机数据目录（挂到容器 `/data`）；已下好模型时指过去可避免重复下载 |
 | `STRATA_MODEL_HOST_DIR` | `./models` | 已经有一份 GGUF 分片目录时，宿主机上的目录（挂到容器 `/models`） |
@@ -32,26 +33,43 @@
 
 ## 模型从哪下载
 
-不用手动下：容器首启时由 Strata 自己下载到数据目录（默认 `./strata-data/`），主要是两样：
+不用手动下：容器首启时由 Strata 自己下载到数据目录（默认 `./strata-data/`）：
 
-| 内容 | 来源 | 体积 |
-|---|---|---:|
-| GGUF 分片（按档位选） | Flash-Next：`ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 的 `IQ2_XS/` 等子目录；35B-A3B：`unsloth/Qwen3.6-35B-A3B-MTP-GGUF` | 23–84 GB |
-| 预处理包 + 草稿层 | 本地由上面分片生成（`packs/`），草稿层默认是 DFlash2 | 约 2 GB |
+| 家族 | 内容 | 来源 | 体积 |
+|---|---|---|---:|
+| Flash-Next | GGUF 分片（按档位选） | `ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` 的 `IQ2_XS/` 等子目录 | 66–84 GB |
+| 35B-A3B | GGUF 分片 | `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` | 约 23 GB |
+| Inkling 2 Mini | `.strata` 包（按档位选） | `strata-engine/Inkling-2-Mini-Strata` | 10.5–19.4 GB |
 
-Flash-Next 的草稿层默认用 **DFlash2**（约 0.8 GB），**不会**下 MTP 那 6 GB；只有显式 `--drafting mtp` 才会去取 MTP 张量。
-35B-A3B 自带 MTP 草稿层，由 Strata 自己准备。
+Qwen 两档另会在本地生成预处理包 / 草稿层（`packs/`，约 2 GB）。Flash-Next 的草稿层默认用 **DFlash2**（约 0.8 GB），
+**不会**下 MTP 那 6 GB；只有显式 `--drafting mtp` 才会去取 MTP 张量。35B-A3B 自带 MTP 草稿层，由 Strata 自己准备。
+
+Inkling 2 Mini 是 Strata 自己的 `.strata` 打包格式，不再生成预处理包：自带 DSpark 草稿层，
+开图另下 `Inkling-2-Mini-Vision.strata`（0.64 GB）。
 
 ### 国内网络：ModelScope 或 HF 镜像
 
-两选一，都写在 `.env` 里，改完 `pixi run recreate`：
+Qwen 两档两选一，都写在 `.env` 里，改完 `pixi run recreate`：
 
 - **魔搭 ModelScope**（推荐）：同名仓库、同路径，Strata 原生支持 —— `STRATA_SOURCE=modelscope`。
   Flash-Next 在 `https://www.modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF`
   上 `IQ2_XS/` 两个分片都在（39.2 + 28.8 GB）。ModelScope 提供的是仓库当前文件，下载后会按它公布的 SHA-256 校验。
 - **HF 镜像站**：`HF_ENDPOINT=https://hf-mirror.com`（仍按 pinned revision 下载并校验）。
 
-两个都留空就是官方 HuggingFace。下载支持断点续传；已下好的文件不会因为换源重下，但换档位会另下。
+**Inkling 2 Mini 也能走魔搭**：`strata-engine/Inkling-2-Mini-Strata` 在魔搭已有同名仓库
+（2026-11-23 建仓，`SHA256SUMS.txt` 与 HuggingFace 一致）。它不受 `STRATA_SOURCE` / `HF_ENDPOINT` 控制，
+要单独指一个 base：
+
+```bash
+# .env —— 魔搭（国内推荐；注意分支是 resolve/master，不是 main）
+STRATA_INKLING_SOURCE=https://www.modelscope.cn/models/strata-engine/Inkling-2-Mini-Strata/resolve/master
+
+# 或 HuggingFace 镜像站
+# STRATA_INKLING_SOURCE=https://hf-mirror.com/strata-engine/Inkling-2-Mini-Strata/resolve/main
+```
+
+不写这个变量就从官方 `huggingface.co` 取（`strata-engine/.../resolve/main`）。下载支持断点续传；
+已下好的文件不会因为换源重下，但换档位会另下。
 
 ### 复用已经下载好的模型
 
@@ -62,10 +80,11 @@ Flash-Next 的草稿层默认用 **DFlash2**（约 0.8 GB），**不会**下 MTP
 STRATA_DATA_DIR=/mnt/raid/llm_models
 ```
 
-目录里应是 Strata 自己的布局（`Strata-data/models/<档位>/…gguf`、`Strata-data/packs/…`），
-这样 `pixi run up` 直接加载、不再下载。
+目录里应是 Strata 自己的布局（Qwen：`Strata-data/models/<档位>/…gguf`；Inkling：
+`Strata-data/models/inkling-2-mini/…strata`；另有 `Strata-data/packs/…`），这样 `pixi run up` 直接加载、不再下载。
 
-也可以只挂一份 GGUF 分片目录（分片直接放在这个目录里，不是再套一层子目录）：
+也可以只挂一份模型目录（直接放在这个目录里，不是再套一层子目录）。Qwen 是 GGUF 分片，
+Inkling 是 `.strata` 包：
 
 ```bash
 # .env
@@ -94,8 +113,10 @@ docker run -d --name qwen-strata --gpus all \
   -v /mnt/raid/llm_models:/data \
   -e FAMILY=qwen36 -e MODEL=UD-Q4_K_XL -e PRESET=qwen36-35b \
   -e CONTEXT=32k -e KV=int8 \
-  ghcr.io/niko1221/strata:0.2.11-cuda13
+  ghcr.io/niko1221/strata:0.2.19-cuda13
 ```
+
+Inkling 2 Mini 用 `FAMILY=inkling-2-mini MODEL=SQ-10 PRESET=inkling-2-mini`（12G 卡整份进显存）。
 
 `MODEL` 必须和数据目录里已下载的档位一致。不传 `API_KEY` 时会自动生成并存在 `/data/state/api-key`，
 用 `docker exec qwen-strata strata launch --show-key --preset qwen36-35b` 查看。
@@ -106,11 +127,12 @@ docker run -d --name qwen-strata --gpus all \
   等 `pixi run ps` 显示 `healthy` 再取。想固定 key 就在 `.env` 设 `STRATA_API_KEY`（16 字符以上），首启就会用它。
 - **等服务的超时**：`pixi run smoke` / `pixi run longctx` 默认等 1 小时（`STRATA_READY_TIMEOUT` 秒）；
   首启下载更久就 `STRATA_READY_TIMEOUT=21600 pixi run smoke`。
-- **首次启动会下载模型**（Flash-Next 66–84 GB / 35B-A3B 约 23 GB）+ 预处理包/草稿层，到数据目录。
+- **首次启动会下载模型**（Flash-Next 66–84 GB / 35B-A3B 约 23 GB / Inkling 10.5–19.4 GB）
+  + 预处理包/草稿层，到数据目录。
   这期间 `docker ps` 显示 `starting`（不是 unhealthy），进度看 `pixi run logs`。
   下载可断点续传，中断后重新 `pixi run up` 会接着下。磁盘建议 SSD/NVMe —— 专家权重会按需从盘上读。
 - **模型在宿主机，不在容器里**：数据目录以 bind mount 挂到容器的 `/data`，删容器 / 换镜像都不丢权重。
-  两个模型的文件和平共处，切换不会删掉另一个。
+  所有模型的文件和平共处，切换不会删掉另一个。
 - **单卡只能跑一个模型**：切换模型会重建容器，旧模型的显存随之释放；不需要手动停两个服务。
 - **内存不够时会自动降级**：Strata 改成从 SSD 读专家（low-RAM 模式），能跑但明显变慢；
   32 GiB 内存跑 Flash-Next 建议直接用 `coder` 档。

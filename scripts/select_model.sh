@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # 切换模型：改写 .env 里的 FAMILY / MODEL / PRESET，再重建容器。
 #
-#   pixi run model-35b     # Qwen3.6-35B-A3B
-#   pixi run model-flash   # Qwen3.8-Flash-Next
+#   pixi run model-flash     # Qwen3.8-Flash-Next（默认）
+#   pixi run model-35b       # Qwen3.6-35B-A3B
+#   pixi run model-inkling   # Inkling 2 Mini（12G 卡 100% 显存）
 #
-# 两个模型共用一个 Strata 服务和一个数据目录；切换只是换容器启动参数，
+# 所有模型共用一个 Strata 服务和一个数据目录；切换只是换容器启动参数，
 # 已下载的权重和各自的 preset 都留着，切回来不会重新下载。
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
+
+# 各档位的常用上下文；切换时只在当前值还是模板默认 / 别的档位常用值时改写
+ALL_CTX_HINTS="128k 32k"
 
 case "${1:-}" in
   flash)
@@ -17,19 +21,27 @@ case "${1:-}" in
     MODEL=IQ2_XS
     PRESET=flash-next
     CTX_HINT=128k
-    OTHER_CTX=32k
     LABEL="Qwen3.8-Flash-Next（qwen / IQ2_XS）"
+    NOTE="下载约 68 GB，内存建议 64 GiB"
     ;;
   35b)
     FAMILY=qwen36
     MODEL=UD-Q4_K_XL
     PRESET=qwen36-35b
     CTX_HINT=32k
-    OTHER_CTX=128k
     LABEL="Qwen3.6-35B-A3B（qwen36 / UD-Q4_K_XL）"
+    NOTE="下载约 23 GB，内存 32 GiB 起"
+    ;;
+  inkling)
+    FAMILY=inkling-2-mini
+    MODEL=SQ-10
+    PRESET=inkling-2-mini
+    CTX_HINT=32k
+    LABEL="Inkling 2 Mini（inkling-2-mini / SQ-10）"
+    NOTE="下载约 10.5 GB，12G 卡整份放进显存，内存 16 GiB 起；魔搭 / HuggingFace 均可"
     ;;
   *)
-    echo "用法：$0 flash|35b" >&2
+    echo "用法：$0 flash|35b|inkling" >&2
     exit 2
     ;;
 esac
@@ -52,19 +64,20 @@ set_env STRATA_FAMILY "$FAMILY"
 set_env STRATA_MODEL "$MODEL"
 set_env STRATA_PRESET "$PRESET"
 
-# 上下文只在没设置时给默认值；仍是模板默认值（128k）时按模型改写，避免 35B 在 12G 卡上直接 OOM
+# 上下文只在没设置时给默认值；仍是模板默认值或别的档位常用值时按模型改写，避免大上下文在 12G 卡上直接 OOM
+is_ctx_hint() {
+  case " $ALL_CTX_HINTS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 template_ctx="$(grep '^STRATA_CONTEXT=' .env.example | cut -d= -f2-)"
 if ! grep -q '^STRATA_CONTEXT=.\+' .env; then
   set_env STRATA_CONTEXT "$CTX_HINT"
   echo "上下文未设置，按 $MODEL 的常用值写入 STRATA_CONTEXT=$CTX_HINT（显存紧张可调小）"
 else
   cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2-)"
-  if [ "$cur_ctx" = "$template_ctx" ] && [ "$cur_ctx" != "$CTX_HINT" ]; then
+  if { [ "$cur_ctx" = "$template_ctx" ] || is_ctx_hint "$cur_ctx"; } && [ "$cur_ctx" != "$CTX_HINT" ]; then
     set_env STRATA_CONTEXT "$CTX_HINT"
-    echo "上下文还是模板默认值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
-  elif [ "$cur_ctx" = "$OTHER_CTX" ] && [ "$cur_ctx" != "$CTX_HINT" ]; then
-    set_env STRATA_CONTEXT "$CTX_HINT"
-    echo "上下文是另一个模型的常用值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
+    echo "上下文还是默认值或别的档位常用值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
   elif [ "$cur_ctx" != "$CTX_HINT" ]; then
     echo "注意：当前 STRATA_CONTEXT=$cur_ctx，$MODEL 的常用值是 $CTX_HINT（显存不够会 OOM，够用就可以保留）"
   fi
@@ -72,6 +85,7 @@ fi
 
 echo "切到 $LABEL"
 echo "  STRATA_FAMILY=$FAMILY  STRATA_MODEL=$MODEL  STRATA_PRESET=$PRESET"
+echo "  $NOTE"
 
 if ! docker info >/dev/null 2>&1; then
   echo
