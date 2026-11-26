@@ -31,6 +31,11 @@ services:
     # 以宿主机同一 uid/gid 运行：数据目录（/data）归 silen=1000 所有，root 跑会被 Strata
     # 判成 runtime directory must be owner-only 并退出 2。GPU 设备是 0666，不影响透传。
     user: "${STRATA_UID:-1000}:${STRATA_GID:-1000}"
+    # /run 在镜像里是 root:root 0755，entrypoint 会往 /run/strata-phase 写启动阶段标记
+    # （checking / preparing / serving）。以非 root 的 user 运行写不进去，日志会刷
+    # "cannot create /run/strata-phase: Permission denied"。挂一个 uid 对齐的 tmpfs 给它写。
+    tmpfs:
+      - /run:rw,uid=${STRATA_UID:-1000},gid=${STRATA_GID:-1000},mode=0755,size=16m
     gpus: all
     ports:
       # 默认只绑本机回环；需要局域网 / 远程访问时把 STRATA_BIND_ADDR 改成 0.0.0.0
