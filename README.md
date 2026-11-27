@@ -10,7 +10,7 @@ OpenAI / Anthropic 兼容的本地模型服务。引擎是 [Strata](https://gith
 |---|---|---|---|---|---|
 | Qwen3.8-Flash-Next（默认） | `FAMILY=qwen` `MODEL=IQ2_XS` | 128K（可到 256K） | 66–84 GB，首启自动下载 | `IQ2_XS` 约 46 GiB，建议 64 GiB | 更大更强，MoE 512 专家/层 |
 | Qwen3.6-35B-A3B | `FAMILY=qwen36` `MODEL=UD-Q4_K_XL` | 32K（12G 卡；显存够可到 128K） | 22.9 GB，首启自动下载 | 32 GiB 起 | 更小更快，MoE 256 专家/层，每 token 激活约 3B |
-| Inkling 2 Mini | `FAMILY=inkling-2-mini` `MODEL=SQ-10` | 32K（可到 256K，最长 1M） | 10.5 GB，首启自动下载 | 16 GiB 起 | 26.4B / 3.4B 激活，12G 卡整份进显存 |
+| Inkling 2 Mini | `FAMILY=inkling-2-mini` `MODEL=SQ-10` | 32K（可到 256K，最长 1M） | 10.5 GB，首启自动下载 | 16 GiB 起 | 26.4B / 3.4B 激活，12G 卡 32K 可用（冷专家自动放内存/SSD） |
 
 地址统一是 `http://127.0.0.1:8080/v1`，**必须带 API key**（首启自动生成，`pixi run key` 查看）。
 
@@ -35,7 +35,7 @@ pixi run smoke            # 健康检查 + 模型列表 + 一次补全
 三套模型只是同一服务的三组启动参数，切换不改 compose 结构：
 
 ```bash
-pixi run model-inkling    # 切到 Inkling 2 Mini（12G 卡推荐：SQ-10 整份进显存）
+pixi run model-inkling    # 切到 Inkling 2 Mini（12G 卡推荐：SQ-10，32K 可用）
 pixi run model-35b        # 切到 Qwen3.6-35B-A3B
 pixi run model-flash      # 切回 Qwen3.8-Flash-Next（默认）
 ```

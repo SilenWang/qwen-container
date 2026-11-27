@@ -24,9 +24,11 @@ name: qwen-strata
 
 services:
   strata:
-    # 固定版本 tag（可用 `latest-cuda13`，或换成 0.2.19-cuda13 等已验证版本）
+    # 固定版本 tag（可用 `latest-cuda13`，或换成 0.2.21-cuda13 等已验证版本）
     # cuda13：RTX 20/30/40/50 + 驱动 580+；cuda12：GTX 10 / P100 / V100，或驱动 575–579
-    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.19-cuda13}
+    # 0.2.21 起镜像自带 strata-inkling 0.1.67：Inkling 纳入 GPU+内存+CPU+SSD 四级 MoE，
+    # 显存装不下时自动把冷专家放到内存/SSD，32K+ 上下文还会自动把 KV 卸载到 host。
+    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.21-cuda13}
     container_name: qwen-strata
     restart: unless-stopped
     # NVIDIA GPU 透传（等价 docker run --gpus all）
@@ -106,7 +108,7 @@ services:
     # 默认 30 分钟没有新请求就调用 Strata 的 POST /unload，卸载模型、释放显存和内存；
     # 下一次请求由 Strata 自动重新加载。STRATA_IDLE_UNLOAD_S=0 关闭。
     # 和主服务用同一个镜像（不重复下载），只跑 Python，不占 GPU。
-    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.19-cuda13}
+    image: ${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.21-cuda13}
     container_name: qwen-idle-unload
     restart: on-failure
     init: true

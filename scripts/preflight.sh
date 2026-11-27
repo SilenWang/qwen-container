@@ -20,7 +20,7 @@ bad()  { printf '  \033[31m✗\033[0m %s\n' "$*"; fails=$((fails + 1)); }
 # ver_ge A B：A >= B 时返回 0（按版本号比较，如 580.65.06 vs 580）
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 
-STRATA_IMAGE="${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.19-cuda13}"
+STRATA_IMAGE="${STRATA_IMAGE:-ghcr.io/niko1221/strata:0.2.21-cuda13}"
 STRATA_PORT="${STRATA_PORT:-8080}"
 STRATA_BIND_ADDR="${STRATA_BIND_ADDR:-127.0.0.1}"
 STRATA_FAMILY="${STRATA_FAMILY:-qwen}"
@@ -47,7 +47,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     ok "宿主 GPU：$gpu"
     vram_mib="$(printf '%s' "$gpu" | awk -F', ' '{print $2}' | tr -dc '0-9')"
     case "$STRATA_FAMILY" in
-      # Inkling SQ-10 官方最低 8 GiB；12 GiB 才整份进显存
+      # Inkling SQ-10 官方最低 8 GiB；12 GiB 时整份进显存更宽裕，不足则更多专家走内存/SSD
       inkling-2-mini) vram_floor=8000 ;;
       *)              vram_floor=12000 ;;
     esac
@@ -112,7 +112,7 @@ case "$STRATA_FAMILY" in
     esac
     ;;
   inkling-2-mini)
-    # 12 GiB 卡跑 SQ-10 是整份放进显存；SQ-15/SQ-20 需要更大的卡或统一内存
+    # 12 GiB 卡跑 SQ-10 可用（引擎按显存留热专家，其余落内存/SSD）；SQ-15/SQ-20 需要更大的卡或统一内存
     ram_reserve=0
     case "$(printf '%s' "$STRATA_MODEL" | tr 'a-z' 'A-Z')" in
       SQ-10) need_ram=16; need_disk=11 ;;

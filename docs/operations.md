@@ -107,7 +107,7 @@ STRATA_IDLE_POLL_S=60       # 检查间隔；阈值误差不超过这个值
 
 **报 “The engine in this image does not match this computer's graphics card” 或启动即退出**：镜像档位与驱动不匹配 ——
 cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12` 镜像
-（`STRATA_IMAGE=ghcr.io/niko1221/strata:0.2.19-cuda12`）。
+（`STRATA_IMAGE=ghcr.io/niko1221/strata:0.2.21-cuda12`）。
 
 **一直 `starting`**：首次启动在下载模型，看 `pixi run logs` 的进度；下载可断点续传，中断后重新
 `pixi run up` 会接着下。
@@ -124,9 +124,14 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 
 **切了模型但服务还是旧的**：`.env` 改了没重建容器。`pixi run recreate`；`restart` 不重读配置。
 
-**镜像升到 0.2.19 后第一次切到 Inkling 2 Mini**：镜像自带 `strata-inkling` 引擎，
-不需要另装；切换只会下载模型包。老镜像（0.2.11）不认这个 family，`FAMILY` 写 `inkling-2-mini` 会报模型不存在 ——
+**镜像升到 0.2.21 后第一次切到 Inkling 2 Mini**：镜像自带 `strata-inkling` 0.1.67，
+不需要另装，也不需要首启升级（组件目录只读不影响）；切换只会下载模型包。老镜像（0.2.11）不认这个 family，`FAMILY` 写 `inkling-2-mini` 会报模型不存在 ——
 先 `pixi run pull` 再 `pixi run recreate`。
+
+**Inkling 在 12 GiB 卡上 32K 就 CUDA OOM**：引擎要 ≥ 0.1.66 才会把装不下的冷专家放到内存/SSD。
+0.2.19 镜像自带的是 0.1.65，它会把 3072 个专家全塞进显存（日志里 `experts 8.60 GB` 一个不少），
+12 GiB 必然爆。用 0.2.21 及以上镜像（内置 0.1.67）即可，日志会显示
+`Engine for Inkling-2-Mini` 为 0.1.67 且专家数少于全量；不需要手动 `strata update`。
 
 **整机卡住 / 内存被吃满**：Strata 要往内存里装几十 GB，首次加载 1–3 分钟机器很卡属正常；
 长期不够就换小档（Flash-Next 用 `Q2_0` / `coder`，35B-A3B 用 `UD-Q4_K_XL`）或在 `.env` 设
