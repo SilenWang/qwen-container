@@ -79,7 +79,10 @@
 
 ## Inkling 2 Mini（Thinking Machines Lab）
 
-Strata 0.2.19 新增的 `strata-inkling` 引擎（镜像内首发 0.1.65，首启会自动升级到 0.1.67，另下约 440 MB）。
+Strata 0.2.21 起的镜像自带 `strata-inkling` **0.1.67**（容器 label `com.strata.engine` 可直接核对）。
+0.2.20 起这个引擎把 Inkling 纳入 GPU + 内存 + CPU + SSD 的**四级 MoE**：显存装不下的冷专家自动放到内存/SSD，
+32K 以上上下文还会自动把 KV 卸载到 host。0.2.19 镜像里只有 0.1.65，没有这层机制，12 GiB 卡跑 SQ-10 32K 会因
+3072 个专家全部进显存而 CUDA OOM，所以本仓库默认镜像从 0.2.19 升到了 0.2.21。
 26.4B 参数、每 token 激活 3.4B（中间层循环 3 次，
 按 48 次虚拟访问算 5.4B），支持 1M 上下文、文字 + 图片输入、OpenAI 兼容的 tool calling。
 
@@ -89,7 +92,7 @@ Strata 0.2.19 新增的 `strata-inkling` 引擎（镜像内首发 0.1.65，首�
 | 启动参数 | `STRATA_FAMILY=inkling-2-mini` + `STRATA_MODEL=SQ-10` |
 | 分档 | `SQ-10`（默认）/ `SQ-15` / `SQ-20` |
 | 上下文 | 默认 32K；可选 8K / 32K / 64K / 128K / 256K（模型本身最长 1M） |
-| 显存 / 内存 | 12 GiB 卡 + 16 GiB 内存起；`SQ-10` 在 12G 卡上整份放进显存 |
+| 显存 / 内存 | 12 GiB 卡 + 16 GiB 内存起；`SQ-10` 在 12 GiB 卡上 32K 可用（约 11.7 / 12.2 GiB 显存，少量冷专家落内存/SSD） |
 | 磁盘 | 11–20 GB（含默认可选的 Vision 分片 0.64 GB） |
 | 并发 | `STRATA_PARALLEL` 可到 64，默认 1 |
 | 草稿层 | 内置 DSpark Block-8，无需另配 |
@@ -102,13 +105,13 @@ Strata 0.2.19 新增的 `strata-inkling` 引擎（镜像内首发 0.1.65，首�
 
 选择建议：
 
-- 本项目默认的 12G 卡 → `SQ-10`：整份模型在显存里，32K 上下文下还有余量
+- 本项目默认的 12G 卡 → `SQ-10`：32K 上下文下显存约 11.7 / 12.2 GiB，引擎会把装不下的冷专家自动放到内存/SSD
 - 16G 卡 → `SQ-15`，质量明显更好
 - 24G 卡 / 统一内存 32 GiB 以上 → `SQ-20`，和原模型逐位一致
 - 想看图片：`.env` 设 `STRATA_VISION=on`，多下 0.64 GB，12G 卡上图片读取器跑 CPU
 
-> 显存内加载未在本仓库实测（开发机 `nvidia-smi` 报 NVML 错误、没有可用 GPU）。
-> 上表的显存 / 内存数字来自官方模型卡与 Strata 0.2.19 的 `inkling_fit` 规则，
+> 显存内加载未在本仓库逐档实测（开发机 `nvidia-smi` 报 NVML 错误、没有可用 GPU）。
+> 上表的显存 / 内存数字来自官方模型卡与 Strata `inkling_fit` 规则（0.2.21 / 引擎 0.1.67），
 > 下载体积与 `strata launch --plan` 的输出一致（镜像内已核对）。
 
 > Hy4-Flash（`strata-engine/Hy4-Flash-Strata`）需要 64 GiB 内存和约 130 GB 磁盘，暂未纳入本容器。

@@ -38,7 +38,7 @@ case "${1:-}" in
     PRESET=inkling-2-mini
     CTX_HINT=32k
     LABEL="Inkling 2 Mini（inkling-2-mini / SQ-10）"
-    NOTE="下载约 10.5 GB，12G 卡整份放进显存，内存 16 GiB 起；魔搭 / HuggingFace 均可"
+    NOTE="下载约 10.5 GB，12G 卡 32K 可用（冷专家自动放内存/SSD），内存 16 GiB 起；魔搭 / HuggingFace 均可"
     ;;
   *)
     echo "用法：$0 flash|35b|inkling" >&2

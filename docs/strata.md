@@ -12,7 +12,7 @@
 | `STRATA_FAMILY` | `qwen` | `qwen` = Flash-Next 的 ISTA-DASLab 原版分档；`qwen36` = Qwen3.6-35B-A3B；`inkling-2-mini` = Inkling 2 Mini；另有 `unsloth` / `coder` / `swift` 等 |
 | `STRATA_MODEL` | `IQ2_XS` | 档位名；Flash-Next 用 `Q2_0` / `IQ2_XS` / `IQ3_XXS` / `IQ3_S`，35B-A3B 用 `UD-Q4_K_XL` / `UD-Q6_K_XL` / `Q8_0`，Inkling 用 `SQ-10` / `SQ-15` / `SQ-20`；留空由 Strata 按显卡自选 |
 | `STRATA_PRESET` | `flash-next` | Strata 在数据目录里保存运行参数的槽位名；每个模型各用一个，切换不会互相覆盖 |
-| `STRATA_IMAGE` | `ghcr.io/niko1221/strata:0.2.19-cuda13` | cuda13 要驱动 580+；GTX 10 / P100 / V100 或驱动 575–579 用 `cuda12`。0.2.19 起镜像带 `strata-inkling` 引擎 |
+| `STRATA_IMAGE` | `ghcr.io/niko1221/strata:0.2.21-cuda13` | cuda13 要驱动 580+；GTX 10 / P100 / V100 或驱动 575–579 用 `cuda12`。0.2.21 起镜像自带 `strata-inkling` 0.1.67（四级 MoE：显存不足时冷专家自动放内存/SSD） |
 | `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k，Inkling 常用 32k（可到 256k） |
 | `STRATA_KV` | `int8` | 会话 KV 格式；`q4_0` 省一半内存 |
 | `STRATA_VISION` | `off` | 图片输入；`on` 会多下约 0.9 GB 的读取器（12G 卡上跑 CPU） |
@@ -113,10 +113,10 @@ docker run -d --name qwen-strata --gpus all \
   -v /mnt/raid/llm_models:/data \
   -e FAMILY=qwen36 -e MODEL=UD-Q4_K_XL -e PRESET=qwen36-35b \
   -e CONTEXT=32k -e KV=int8 \
-  ghcr.io/niko1221/strata:0.2.19-cuda13
+  ghcr.io/niko1221/strata:0.2.21-cuda13
 ```
 
-Inkling 2 Mini 用 `FAMILY=inkling-2-mini MODEL=SQ-10 PRESET=inkling-2-mini`（12G 卡整份进显存）。
+Inkling 2 Mini 用 `FAMILY=inkling-2-mini MODEL=SQ-10 PRESET=inkling-2-mini`（12G 卡 32K 可用，冷专家自动落内存/SSD；需要 0.2.21+ 镜像的引擎 0.1.67）。
 
 `MODEL` 必须和数据目录里已下载的档位一致。不传 `API_KEY` 时会自动生成并存在 `/data/state/api-key`，
 用 `docker exec qwen-strata strata launch --show-key --preset qwen36-35b` 查看。
