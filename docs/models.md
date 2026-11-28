@@ -91,7 +91,7 @@ Strata 0.2.21 起的镜像自带 `strata-inkling` **0.1.67**（容器 label `com
 | 权重来源 | `strata-engine/Inkling-2-Mini-Strata`（HuggingFace / 魔搭均有，见 [strata.md](strata.md#国内网络modelscope-或-hf-镜像)） |
 | 启动参数 | `STRATA_FAMILY=inkling-2-mini` + `STRATA_MODEL=SQ-10` |
 | 分档 | `SQ-10`（默认）/ `SQ-15` / `SQ-20` |
-| 上下文 | 默认 32K；可选 8K / 32K / 64K / 128K / 256K（模型本身最长 1M） |
+| 上下文 | 默认 32K；可选 8K / 32K / 64K / 128K / 256K（模型本身最长 1M）。**32K 以上 KV 放 host（内存）：32K 约 1.1 GiB，128K 约 4.3 GiB**；16 GiB 内存的机器只能用 32k |
 | 显存 / 内存 | 12 GiB 卡 + 16 GiB 内存起；`SQ-10` 在 12 GiB 卡上 32K 可用（约 11.7 / 12.2 GiB 显存，少量冷专家落内存/SSD） |
 | 磁盘 | 11–20 GB（含默认可选的 Vision 分片 0.64 GB） |
 | 并发 | `STRATA_PARALLEL` 可到 64，默认 1 |
@@ -106,6 +106,7 @@ Strata 0.2.21 起的镜像自带 `strata-inkling` **0.1.67**（容器 label `com
 选择建议：
 
 - 本项目默认的 12G 卡 → `SQ-10`：32K 上下文下显存约 11.7 / 12.2 GiB，引擎会把装不下的冷专家自动放到内存/SSD
+- 16 GiB 内存的机器只配 32K；128K 的 host KV 约 4.3 GiB，卸载后重载会因内存不足被结束（3 次后 Strata 熔断，503）
 - 16G 卡 → `SQ-15`，质量明显更好
 - 24G 卡 / 统一内存 32 GiB 以上 → `SQ-20`，和原模型逐位一致
 - 想看图片：`.env` 设 `STRATA_VISION=on`，多下 0.64 GB，12G 卡上图片读取器跑 CPU

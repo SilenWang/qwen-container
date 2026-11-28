@@ -121,6 +121,11 @@ services:
       STRATA_URL: http://strata:8080
       STRATA_IDLE_UNLOAD_S: ${STRATA_IDLE_UNLOAD_S:-1800}
       STRATA_IDLE_POLL_S: ${STRATA_IDLE_POLL_S:-60}
+      # 两次卸载的最小间隔（秒）：默认 600 = Strata 的熔断窗口（10 分钟 3 次引擎死亡就 503）。
+      # 一次空闲只卸载一次；这里是兜底，防止刚重载就再卸载，把重载失败叠成熔断。
+      STRATA_IDLE_UNLOAD_COOLDOWN_S: ${STRATA_IDLE_UNLOAD_COOLDOWN_S:-600}
+      # 记住「这段空闲已经卸过」；看门狗自己被重启也不会立刻再卸一次
+      STRATA_IDLE_STATE_FILE: /tmp/idle-unload-state.json
       # 留空则读数据目录里的 /data/state/api-key（主服务首启生成的那个）
       STRATA_API_KEY: ${STRATA_API_KEY:-}
       STRATA_KEY_FILE: /data/state/api-key

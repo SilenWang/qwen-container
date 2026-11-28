@@ -13,7 +13,7 @@
 | `STRATA_MODEL` | `IQ2_XS` | 档位名；Flash-Next 用 `Q2_0` / `IQ2_XS` / `IQ3_XXS` / `IQ3_S`，35B-A3B 用 `UD-Q4_K_XL` / `UD-Q6_K_XL` / `Q8_0`，Inkling 用 `SQ-10` / `SQ-15` / `SQ-20`；留空由 Strata 按显卡自选 |
 | `STRATA_PRESET` | `flash-next` | Strata 在数据目录里保存运行参数的槽位名；每个模型各用一个，切换不会互相覆盖 |
 | `STRATA_IMAGE` | `ghcr.io/niko1221/strata:0.2.21-cuda13` | cuda13 要驱动 580+；GTX 10 / P100 / V100 或驱动 575–579 用 `cuda12`。0.2.21 起镜像自带 `strata-inkling` 0.1.67（四级 MoE：显存不足时冷专家自动放内存/SSD） |
-| `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k，Inkling 常用 32k（可到 256k） |
+| `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k，Inkling 常用 32k（可到 256k）。**Inkling 从 32K 起把 KV 放到 host（内存）：32K 约 1.1 GiB，128K 约 4.3 GiB**，16 GiB 内存的机器只能用 32k |
 | `STRATA_KV` | `int8` | 会话 KV 格式；`q4_0` 省一半内存 |
 | `STRATA_VISION` | `off` | 图片输入；`on` 会多下约 0.9 GB 的读取器（12G 卡上跑 CPU） |
 | `STRATA_TUNE` | `skip` | `quick` 首启做一次硬件校准（5–20 分钟，只做一次） |
@@ -21,6 +21,7 @@
 | `STRATA_RAM_KEEP_GIB` | `0` | 给系统留出的空闲内存（GiB）；跑大档位或机器还要干别的时设 6–8 |
 | `STRATA_IDLE_UNLOAD_S` | `1800` | 空闲释放：多少秒没有新请求就卸载模型（0 = 关闭）；由 `idle-unload` 辅助容器执行 |
 | `STRATA_IDLE_POLL_S` | `60` | 空闲检查间隔（秒）；阈值误差不超过这个值 |
+| `STRATA_IDLE_UNLOAD_COOLDOWN_S` | `600` | 两次卸载的最小间隔（秒），与 Strata 的熔断窗口一致；一次空闲只会卸载一次，这是兜底。0 = 不限制 |
 | `STRATA_SET` | 空 | 高级引擎参数，空格分隔 `KEY=VALUE`（等价于 `strata launch --set`） |
 | `STRATA_SOURCE` | 空 | 模型下载源：空 = HuggingFace，`modelscope` = 魔搭（国内）。**只作用于 Qwen 家族** |
 | `HF_ENDPOINT` | 空 | HuggingFace 镜像站，如 `https://hf-mirror.com`。**只作用于 Qwen 家族** |
@@ -142,3 +143,5 @@ Inkling 2 Mini 用 `FAMILY=inkling-2-mini MODEL=SQ-10 PRESET=inkling-2-mini`（1
 - **镜像升级**：`pixi run pull && pixi run recreate`，模型和 preset 保留在数据目录。
 - **空闲释放**：默认 30 分钟没有新请求就卸载模型（`STRATA_IDLE_UNLOAD_S`，0 = 关闭），
   由 `idle-unload` 辅助容器调用 `POST /unload`；下一次请求会自动加载。日志看 `pixi run idle-logs`。
+  同一段空闲只卸载一次（`/v1/status` 的 `last_request_at` 前进才允许再卸），两次卸载至少隔
+  `STRATA_IDLE_UNLOAD_COOLDOWN_S`（默认 600s，和 Strata 的熔断窗口一致）。
