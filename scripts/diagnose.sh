@@ -65,8 +65,13 @@ have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 
     sec "实际容器的限制（Memory=0 表示不限制；ShmSize 单位字节）"
     if docker inspect qwen-strata >/dev/null 2>&1; then
-      docker inspect qwen-strata 2>/dev/null \
-        | jq -r '.[0].HostConfig | {Memory, MemorySwap, MemoryReservation, OomKillDisable, ShmSize, CgroupParent, Ulimits, NanoCpus}' 2>&1 | sed 's/^/  /'
+      if command -v jq >/dev/null 2>&1; then
+        docker inspect qwen-strata 2>/dev/null \
+          | jq -r '.[0].HostConfig | {Memory, MemorySwap, MemoryReservation, OomKillDisable, ShmSize, CgroupParent, Ulimits, NanoCpus}' 2>&1 | sed 's/^/  /'
+      else
+        echo "  没有 jq：只打印关键字段（直接 bash 运行、不在 pixi 环境时）"
+        docker inspect -f 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} OomKillDisable={{.HostConfig.OomKillDisable}} ShmSize={{.HostConfig.ShmSize}} NanoCpus={{.HostConfig.NanoCpus}}' qwen-strata 2>&1 | sed 's/^/  /'
+      fi
       echo "  容器状态：$(docker inspect -f '{{.State.Status}} restarts={{.RestartCount}} oomkilled={{.State.OOMKilled}}' qwen-strata 2>&1)"
     else
       echo "  没有 qwen-strata 容器（还没启动？）"

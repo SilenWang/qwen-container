@@ -66,6 +66,11 @@ Inkling 2 Mini 走魔搭（`resolve/master`）或 HuggingFace，下载源配置�
 [strata.md](strata.md#国内网络modelscope-或-hf-镜像)。
 12G 卡一次只加载一个模型，重建容器会先卸载旧模型、释放显存。
 
+上下文不会被无条件改写：`pixi run model-inkling` 只在内存核算判 `warn`/`bad` 时降档；
+判 `ok` 时保留 `.env` 里已有的值（`128k` 与 `131072` 两种写法都保留）。核算按实际 `MemTotal`，
+官方最低门槛 16 GiB 不是机器容量。只想改 `.env`、暂不重建容器时：
+`STRATA_SELECT_NO_UP=1 pixi run model-inkling`。
+
 只想换档位（例如 Flash-Next 的 `IQ2_XS` → `IQ3_S`）：改 `.env` 的 `STRATA_MODEL`，`pixi run recreate`。
 
 ## 空闲释放

@@ -64,50 +64,69 @@ set_env STRATA_FAMILY "$FAMILY"
 set_env STRATA_MODEL "$MODEL"
 set_env STRATA_PRESET "$PRESET"
 
-# 上下文只在没设置时给默认值；仍是模板默认值或别的档位常用值时按模型改写，避免大上下文在 12G 卡上直接 OOM
+# 上下文：
+#   - 没设置 → 写入该档位的常用值；
+#   - Inkling → 交给下面的内存预算：装得下就保留用户的值（128k / 131072 都不改），只有 warn / bad 才降档；
+#   - 其它档位 → 当前值还是模板默认 / 别的档位常用值时，按该档位常用值规范化。
 is_ctx_hint() {
   case " $ALL_CTX_HINTS " in *" $1 "*) return 0 ;; esac
   return 1
 }
 template_ctx="$(grep '^STRATA_CONTEXT=' .env.example | cut -d= -f2-)"
-if ! grep -q '^STRATA_CONTEXT=.\+' .env; then
+cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2- || true)"
+if [ -z "$cur_ctx" ]; then
   set_env STRATA_CONTEXT "$CTX_HINT"
   echo "上下文未设置，按 $MODEL 的常用值写入 STRATA_CONTEXT=$CTX_HINT（显存紧张可调小）"
-else
-  cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2-)"
-  if { [ "$cur_ctx" = "$template_ctx" ] || is_ctx_hint "$cur_ctx"; } && [ "$cur_ctx" != "$CTX_HINT" ]; then
-    set_env STRATA_CONTEXT "$CTX_HINT"
-    echo "上下文还是默认值或别的档位常用值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
-  elif [ "$cur_ctx" != "$CTX_HINT" ]; then
-    echo "注意：当前 STRATA_CONTEXT=$cur_ctx，$MODEL 的常用值是 $CTX_HINT（显存不够会 OOM，够用就可以保留）"
-  fi
+elif [ "$FAMILY" = "inkling-2-mini" ]; then
+  echo "当前 STRATA_CONTEXT=$cur_ctx：按机器内存核算，装不下才降档（见下）"
+elif { [ "$cur_ctx" = "$template_ctx" ] || is_ctx_hint "$cur_ctx"; } && [ "$cur_ctx" != "$CTX_HINT" ]; then
+  set_env STRATA_CONTEXT "$CTX_HINT"
+  echo "上下文还是默认值或别的档位常用值 $cur_ctx，按 $MODEL 改写为 STRATA_CONTEXT=$CTX_HINT（显存够可以调回去）"
+elif [ "$cur_ctx" != "$CTX_HINT" ]; then
+  echo "注意：当前 STRATA_CONTEXT=$cur_ctx，$MODEL 的常用值是 $CTX_HINT（够用就可以保留）"
 fi
 
-# Inkling 从 32K 起把 KV 卸载到 host（内存）：按机器内存核算，装不下就降到装得下的档位。
-# 128K / 131072 在低于官方门槛的机器上（如刚好 16 GiB）重载时内存可能不够，3 次后 Strata 熔断；
-# 门槛只用于低配拦截，判定用实际 MemTotal，内存更大的机器不会被改写。
-if [ "$FAMILY" = "inkling-2-mini" ] && command -v python3 >/dev/null 2>&1; then
-  mem_gib="${STRATA_MEM_GIB:-$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)}"
-  cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2- || true)"
-  budget="$(python3 "$HERE/scripts/ctx_budget.py" --family "$FAMILY" --model "$MODEL" \
-              --context "${cur_ctx:-$CTX_HINT}" --memory "$mem_gib" 2>/dev/null || true)"
-  b_status="$(printf '%s\n' "$budget" | sed -n 's/^status=//p' | head -1)"
-  b_suggested="$(printf '%s\n' "$budget" | sed -n 's/^suggested=//p' | head -1)"
-  b_msg="$(printf '%s\n' "$budget" | sed -n 's/^message=//p' | head -1)"
-  case "$b_status" in
-    bad | warn)
-      if [ -n "$b_suggested" ] && [ "$b_suggested" != "$cur_ctx" ]; then
-        set_env STRATA_CONTEXT "$b_suggested"
-        echo "内存核算：上下文 ${cur_ctx:-$CTX_HINT} 在 ${mem_gib} GiB 内存上装不下，已改写为 STRATA_CONTEXT=$b_suggested"
-        [ -n "$b_msg" ] && echo "  $b_msg"
-      fi
-      ;;
-  esac
+# Inkling 从 32K 起把 KV 卸载到 host（内存）：按机器实际内存核算，只有装不下（warn / bad）才降到建议档位。
+# 官方最低门槛（SQ-10 16 GiB）只用于低配拦截，不是现场机器的容量：128 GiB 这类机器保留用户写的 128k / 131072。
+if [ "$FAMILY" = "inkling-2-mini" ]; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "没有 python3：跳过 Inkling 的上下文内存核算，保留 STRATA_CONTEXT 原值" >&2
+  else
+    mem_gib="${STRATA_MEM_GIB:-$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)}"
+    cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2- || true)"
+    budget="$(python3 "$HERE/scripts/ctx_budget.py" --family "$FAMILY" --model "$MODEL" \
+                --context "${cur_ctx:-$CTX_HINT}" --memory "$mem_gib" 2>/dev/null || true)"
+    b_status="$(printf '%s\n' "$budget" | sed -n 's/^status=//p' | head -1)"
+    b_suggested="$(printf '%s\n' "$budget" | sed -n 's/^suggested=//p' | head -1)"
+    b_msg="$(printf '%s\n' "$budget" | sed -n 's/^message=//p' | head -1)"
+    case "$b_status" in
+      ok)
+        # 预算够：不改用户的值（128k 与 131072 都保留），只说明核算结果
+        [ -n "$b_msg" ] && echo "内存核算：$b_msg → 保留 STRATA_CONTEXT=${cur_ctx:-$CTX_HINT}"
+        ;;
+      bad | warn)
+        if [ -n "$b_suggested" ] && [ "$b_suggested" != "$cur_ctx" ]; then
+          set_env STRATA_CONTEXT "$b_suggested"
+          echo "内存核算：上下文 ${cur_ctx:-$CTX_HINT} 在 ${mem_gib} GiB 内存上装不下，已改写为 STRATA_CONTEXT=$b_suggested"
+          [ -n "$b_msg" ] && echo "  $b_msg"
+        fi
+        ;;
+      *)
+        [ -n "$b_msg" ] && echo "内存核算：$b_msg（保留 STRATA_CONTEXT=${cur_ctx:-$CTX_HINT}）"
+        ;;
+    esac
+  fi
 fi
 
 echo "切到 $LABEL"
 echo "  STRATA_FAMILY=$FAMILY  STRATA_MODEL=$MODEL  STRATA_PRESET=$PRESET"
 echo "  $NOTE"
+
+if [ "${STRATA_SELECT_NO_UP:-0}" = "1" ]; then
+  echo
+  echo "只改写 .env，没有重建容器（STRATA_SELECT_NO_UP=1）"
+  exit 0
+fi
 
 if ! docker info >/dev/null 2>&1; then
   echo
