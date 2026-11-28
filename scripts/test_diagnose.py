@@ -70,7 +70,14 @@ case "$1" in
       *) exit 0 ;;
     esac
     ;;
-  events) echo "2026-11-28T08:05:11Z container die abc (image=strata, name=qwen-strata)" ;;
+  events)
+    # 与真实 docker 一样：参数先回显一份（测试据此断言 --filter event=...），
+    # 然后输出 400 条 healthcheck 噪声 + 一条真正的 die。脚本若再 tail，die 会被挤掉。
+    echo "ARGS: $*"
+    i=0
+    while [ "$i" -lt 400 ]; do echo "1795856000 exec_die name=qwen-strata"; i=$((i + 1)); done
+    echo "1795856785 die name=qwen-strata exit=0"
+    ;;
   *) exit 0 ;;
 esac
 '''
@@ -91,6 +98,10 @@ class DiagnoseTest(unittest.TestCase):
         docker = fake_bin / "docker"
         docker.write_text(FAKE_DOCKER, encoding="utf-8")
         docker.chmod(0o755)
+        # 固定 dmesg 的无权限分支（root / CAP_SYSLOG 的 CI 上真实 dmesg 会走另一条路）
+        dmesg = fake_bin / "dmesg"
+        dmesg.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+        dmesg.chmod(0o755)
         self.env = os.environ.copy()
         self.env.update({
             "PATH": f"{fake_bin}:/usr/bin:/bin",
@@ -132,10 +143,24 @@ class DiagnoseTest(unittest.TestCase):
         self.assertIn("exit=1 start=", text)
         self.assertIn("Failed to connect to 127.0.0.1 port 8080", text)
 
-    def test_reports_container_events(self) -> None:
+    def test_events_are_filtered_and_survive_healthcheck_noise(self) -> None:
+        # 回归：healthcheck 每 30 秒产生 exec_create/exec_start/exec_die，旧实现用 tail -60
+        # 只装得下约 10 分钟，真正 9 小时前的 die 会被挤掉
         text = self.run_diagnose()
         self.assertIn("最近 24 小时的容器事件", text)
-        self.assertIn("container die", text)
+        events = text.split("最近 24 小时的容器事件", 1)[1]
+        self.assertIn("--filter event=die", events)
+        for event in ("event=oom", "event=kill", "event=destroy", "event=restart"):
+            self.assertIn(event, events)
+        self.assertIn("die name=qwen-strata exit=0", events)
+        # 400 条噪声一行不少：说明脚本没有 tail 截断
+        self.assertEqual(events.count("exec_die name=qwen-strata"), 400)
+
+    def test_warns_to_keep_the_engine_log_before_recreating(self) -> None:
+        text = self.run_diagnose()
+        self.assertIn("复现 503 后先别重启 / 重建容器", text)
+        self.assertIn("截断覆盖", text)
+        self.assertIn("/data/state/strata/launch/*.engine.log", text)
 
     def test_reports_container_nvml_failure_and_kernel_command(self) -> None:
         text = self.run_diagnose()

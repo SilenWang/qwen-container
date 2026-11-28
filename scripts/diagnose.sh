@@ -20,7 +20,7 @@ PRINT=0
 for arg in "$@"; do
   case "$arg" in
     --print) PRINT=1 ;;
-    -h | --help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,10p' "$0"; exit 0 ;;
   esac
 done
 
@@ -39,6 +39,11 @@ cont() {
 have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
 
 {
+  sec "重要：复现 503 后先别重启 / 重建容器"
+  echo "  下一次 launch（pixi run recreate / up / restart，或容器重启）会用新日志截断覆盖"
+  echo "  /data/state/strata/launch/*.engine.log，旧容器的崩溃记录随之丢失。"
+  echo "  复现后立刻跑本脚本并保存输出，再决定是否重建。"
+
   sec "诊断时间"
   echo "  $(date -Is)  主机 $(uname -srm)"
 
@@ -93,11 +98,16 @@ have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
     docker inspect qwen-strata --format 'Status={{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}} FailingStreak={{if .State.Health}}{{.State.Health.FailingStreak}}{{else}}0{{end}}' 2>&1 | sed 's/^/  /'
     docker inspect qwen-strata --format '{{range .State.Health.Log}}exit={{.ExitCode}} start={{.Start}} output={{printf "%s" .Output}}{{"\n"}}{{end}}' 2>&1 | tail -8 | sed 's/^/  /'
 
-    sec "最近 24 小时的容器事件（die / oom / kill / restart / health_status；5 秒后停）"
+    sec "最近 24 小时的容器事件（只取 die / oom / kill / destroy / restart；已按 event 过滤，不截断）"
     if command -v timeout >/dev/null 2>&1; then
-      timeout 5 docker events --since 24h --filter container=qwen-strata 2>&1 | tail -60 | sed 's/^/  /'
+      timeout 5 docker events --since 24h --filter container=qwen-strata \
+        --filter event=die --filter event=oom --filter event=kill \
+        --filter event=destroy --filter event=restart \
+        --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exit={{.Actor.Attributes.exitCode}}' 2>&1 \
+        | sed 's/^/  /'
     else
-      echo "  没有 timeout 命令；手动：docker events --since 24h --filter container=qwen-strata"
+      echo "  没有 timeout 命令；手动："
+      echo "    docker events --since 24h --filter container=qwen-strata --filter event=die --filter event=oom --filter event=kill --filter event=destroy --filter event=restart"
     fi
 
     sec "容器状态"
@@ -108,7 +118,7 @@ have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 
     sec "全量服务日志里的关键错误（grep 全部历史，不只看末尾 500 行）"
     docker compose logs --no-color strata 2>&1 \
-      | grep -i -n -E "engine stopped|engine had stopped|engine started|loading the model again|crash|xid|cuda|out of memory|killed|SIG[A-Z]+|panic|abort|fatal|failed to (start|load)|unhealthy" \
+      | grep -i -n -E "engine stopped|engine had stopped|engine started|loading the model again|crash|xid|cuda error|cuda_error|no cuda-capable|nvml|out of memory|killed|SIG[A-Z]+|panic|abort|fatal|failed to (start|load)|unhealthy" \
       | tail -200 | sed 's/^/  /'
 
     if docker compose ps --status running --services 2>/dev/null | grep -qx strata; then

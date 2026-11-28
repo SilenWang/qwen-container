@@ -152,10 +152,12 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 
 **闲置卸载后第一次请求 503 `The engine stopped 3 times in 10 minutes`**：这是 Strata 0.2.21 起的熔断
 保护——同一个引擎 10 分钟内停了 3 次就不再拉起，等 10 分钟会自动重试，`pixi run recreate` 立刻清空计数。
-它只是「引擎连续退出」的表象，**不是原因本身**；先跑 `pixi run diagnose` 收证据（不改配置、不重启容器）：
+它只是「引擎连续退出」的表象，**不是原因本身**。**复现后先别重启 / 重建容器**：下一次 launch
+（`pixi run recreate` / `up` / `restart`）会用新日志截断覆盖 `/data/state/strata/launch/*.engine.log`，
+崩溃现场随之丢失；先跑 `pixi run diagnose` 并保存输出（它只读，不改配置、不重启）：
 
 - 服务日志里的 `the engine stopped ... (exit code N)`：N 是退出码 / 信号（-9 = SIGKILL、-4 = SIGILL、-7 = SIGBUS）；
-- `Its log: <path>` 指向的引擎日志末尾（diagnose 会取 `/data/state` 下最近修改的 `.log`）；
+- `Its log: <path>` 指向的引擎日志末尾（diagnose 按精确路径收 `/data/state/strata/launch/*.log`，容器内与宿主各一份）；
 - 宿主 `dmesg` 的 OOM 记录、容器实际内存限制（应为 0 = 不限制，仓库没有设 `mem_limit`）、`/dev/shm` 与数据目录余量。
 
 `engine started` 之后没有任何输出就退出，说明引擎在写日志前就被结束了；按退出码判断，不要只看 503 文案。
