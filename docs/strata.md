@@ -13,7 +13,7 @@
 | `STRATA_MODEL` | `IQ2_XS` | 档位名；Flash-Next 用 `Q2_0` / `IQ2_XS` / `IQ3_XXS` / `IQ3_S`，35B-A3B 用 `UD-Q4_K_XL` / `UD-Q6_K_XL` / `Q8_0`，Inkling 用 `SQ-10` / `SQ-15` / `SQ-20`；留空由 Strata 按显卡自选 |
 | `STRATA_PRESET` | `flash-next` | Strata 在数据目录里保存运行参数的槽位名；每个模型各用一个，切换不会互相覆盖 |
 | `STRATA_IMAGE` | `ghcr.io/niko1221/strata:0.2.21-cuda13` | cuda13 要驱动 580+；GTX 10 / P100 / V100 或驱动 575–579 用 `cuda12`。0.2.21 起镜像自带 `strata-inkling` 0.1.67（四级 MoE：显存不足时冷专家自动放内存/SSD） |
-| `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k，Inkling 常用 32k（可到 256k）。**Inkling 从 32K 起把 KV 放到 host（内存）：32K 约 1.1 GiB，128K 约 4.3 GiB**，16 GiB 内存的机器只能用 32k |
+| `STRATA_CONTEXT` | `128k` | 32k / 64k / 128k / 256k，或直接写 token 数；35B-A3B 在 12G 卡上建议 32k，Inkling 常用 32k（可到 256k）。**Inkling 从 32K 起把 KV 放到 host（内存）：32K 约 1.1 GiB，128K 约 4.3 GiB**，内存刚够官方门槛 16 GiB 的机器只能用 32k |
 | `STRATA_KV` | `int8` | 会话 KV 格式；`q4_0` 省一半内存 |
 | `STRATA_VISION` | `off` | 图片输入；`on` 会多下约 0.9 GB 的读取器（12G 卡上跑 CPU） |
 | `STRATA_TUNE` | `skip` | `quick` 首启做一次硬件校准（5–20 分钟，只做一次） |

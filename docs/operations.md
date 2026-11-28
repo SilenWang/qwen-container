@@ -34,7 +34,8 @@ pixi run key           # 打印 API key（要等容器 healthy 之后才有）
 pixi run smoke         # 冒烟：健康检查 + 模型列表 + 一次补全 + 吞吐
 pixi run longctx       # 长上下文召回实测（needle）
 pixi run idle-logs     # 空闲释放看门狗日志
-pixi run test          # 空闲释放看门狗单元测试
+pixi run test          # 单元测试（空闲释放看门狗 + 上下文预算）
+pixi run diagnose      # 现场诊断：容器内存限制 / 服务与引擎日志 / dmesg / shm / 磁盘
 pixi run recreate      # 改了 .env 后按新配置重建容器
 pixi run restart       # 重启（不重读 .env）
 pixi run stop          # 停止（卸载模型，释放显存与内存）
@@ -64,6 +65,11 @@ pixi run longctx -- --depths 4096,16384,32768
 Inkling 2 Mini 走魔搭（`resolve/master`）或 HuggingFace，下载源配置见
 [strata.md](strata.md#国内网络modelscope-或-hf-镜像)。
 12G 卡一次只加载一个模型，重建容器会先卸载旧模型、释放显存。
+
+上下文不会被无条件改写：`pixi run model-inkling` 只在内存核算判 `warn`/`bad` 时降档；
+判 `ok` 时保留 `.env` 里已有的值（`128k` 与 `131072` 两种写法都保留）。核算按实际 `MemTotal`，
+官方最低门槛 16 GiB 不是机器容量。只想改 `.env`、暂不重建容器时：
+`STRATA_SELECT_NO_UP=1 pixi run model-inkling`。
 
 只想换档位（例如 Flash-Next 的 `IQ2_XS` → `IQ3_S`）：改 `.env` 的 `STRATA_MODEL`，`pixi run recreate`。
 
@@ -146,12 +152,16 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 
 **闲置卸载后第一次请求 503 `The engine stopped 3 times in 10 minutes`**：这是 Strata 0.2.21 起的熔断
 保护——同一个引擎 10 分钟内停了 3 次就不再拉起，等 10 分钟会自动重试，`pixi run recreate` 立刻清空计数。
-先看现场：`pixi run logs | tail -100`（引擎最后一句常常是 `engine started: ...` 之后就没输出），
-再 `dmesg -T | grep -i -E 'killed process|out of memory'`。Inkling 最常见的原因是**上下文超过机器内存**：
-它从 32K 起把 KV 放到 host（内存），32K 约 1.1 GiB、128K 约 4.3 GiB；16 GiB 内存的机器用 128K，
-卸载后重新加载的峰值会顶到内存上限，引擎被 OOM killer 结束，重试 3 次就熔断。
-修法：`STRATA_CONTEXT=32k` 后 `pixi run recreate`（`pixi run model-inkling` 会按内存自动降）。
-`pixi run preflight` 现在会在启动前按机器内存核算，装不下直接报错并给出建议值。
+它只是「引擎连续退出」的表象，**不是原因本身**；先跑 `pixi run diagnose` 收证据（不改配置、不重启容器）：
+
+- 服务日志里的 `the engine stopped ... (exit code N)`：N 是退出码 / 信号（-9 = SIGKILL、-4 = SIGILL、-7 = SIGBUS）；
+- `Its log: <path>` 指向的引擎日志末尾（diagnose 会取 `/data/state` 下最近修改的 `.log`）；
+- 宿主 `dmesg` 的 OOM 记录、容器实际内存限制（应为 0 = 不限制，仓库没有设 `mem_limit`）、`/dev/shm` 与数据目录余量。
+
+`engine started` 之后没有任何输出就退出，说明引擎在写日志前就被结束了；按退出码判断，不要只看 503 文案。
+有一条已知的低配边界：Inkling 从 32K 起把 KV 放 host（32K 约 1.1 GiB、128K 约 4.3 GiB），
+内存低于 SQ-10 官方最低门槛 16 GiB 的机器用 128K 会顶到上限（`pixi run preflight` 会拦）；
+内存更大的机器不会被这条命中，要按 diagnose 的证据查其它退出原因。
 
 **很慢、磁盘灯常亮**：内存不足，专家在从 SSD 读。换小档，或确认数据目录（`STRATA_DATA_DIR`）在 NVMe 上。
 

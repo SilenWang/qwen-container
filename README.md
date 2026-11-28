@@ -23,6 +23,7 @@ pixi run up               # 启动（首次下载模型，进度看 pixi run log
 pixi run ps               # 等到 STATUS 显示 healthy（首次下载 68 GB，可能要几小时）
 pixi run key              # 没在 .env 里设 key 时，打印自动生成的 key（下载期间还没有 key）
 pixi run smoke            # 健康检查 + 模型列表 + 一次补全
+pixi run diagnose         # 引擎反复退出 / 503 时收现场证据（容器限制、服务与引擎日志、dmesg）
 ```
 
 首次下载超过 1 小时的话，给需要等服务的命令放大超时：`STRATA_READY_TIMEOUT=21600 pixi run smoke`。

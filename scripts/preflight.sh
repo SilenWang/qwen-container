@@ -149,9 +149,9 @@ else
   warn "STRATA_MODEL=$STRATA_MODEL：不在已知档位表里，跳过内存核算（空值表示让 Strata 按显卡自选）"
 fi
 
-# 上下文预算：Inkling 在 32K 以上把 KV 放到 host（内存）。内存不够时引擎会在加载 / 重载时被
-# OOM killer 结束，Strata 0.2.21 起 10 分钟内 3 次就熔断 —— 客户端只看到 503
-# "The engine stopped 3 times in 10 minutes"。这里在启动前就把它拦下来。
+# 上下文预算：Inkling 在 32K 以上把 KV 放到 host（内存）。内存不够时引擎可能在加载 / 重载时
+# 被结束（OOM 是其中一种），Strata 0.2.21 起 10 分钟内 3 次就熔断，客户端只看到 503
+# "The engine stopped 3 times in 10 minutes"。这里按实际 MemTotal 在启动前拦下低配组合。
 ctx_out=""
 if command -v python3 >/dev/null 2>&1; then
   ctx_out="$(python3 "$HERE/scripts/ctx_budget.py" --family "$STRATA_FAMILY" --model "$STRATA_MODEL" \
