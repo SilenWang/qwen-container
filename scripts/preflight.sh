@@ -95,8 +95,12 @@ echo "== 宿主机资源 =="
 ok "CPU 逻辑核：$(nproc)"
 grep -qw avx2 /proc/cpuinfo 2>/dev/null && ok "CPU 支持 AVX2（引擎按 AVX2 编译）" \
                                         || bad "CPU 不支持 AVX2：引擎可能以 illegal instruction 退出"
-mem_gib="$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo)"
-awk '/MemTotal/{printf "  内存总量：%.1f GiB\n", $2/1048576}' /proc/meminfo
+mem_gib="${STRATA_MEM_GIB:-$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo)}"
+if [ -n "${STRATA_MEM_GIB:-}" ]; then
+  printf '  内存总量：%s GiB（STRATA_MEM_GIB 覆盖，仅用于预演）\n' "$STRATA_MEM_GIB"
+else
+  awk '/MemTotal/{printf "  内存总量：%.1f GiB\n", $2/1048576}' /proc/meminfo
+fi
 
 # 各档位启动时要放进内存的专家权重 + 下载体积（GB），每个家族一张表。
 # ram_reserve：Qwen 两档的 need_ram 只是权重侧占用，另留 8 GiB 系统余量；
@@ -144,6 +148,25 @@ if [ "$need_ram" -gt 0 ]; then
 else
   warn "STRATA_MODEL=$STRATA_MODEL：不在已知档位表里，跳过内存核算（空值表示让 Strata 按显卡自选）"
 fi
+
+# 上下文预算：Inkling 在 32K 以上把 KV 放到 host（内存）。内存不够时引擎会在加载 / 重载时被
+# OOM killer 结束，Strata 0.2.21 起 10 分钟内 3 次就熔断 —— 客户端只看到 503
+# "The engine stopped 3 times in 10 minutes"。这里在启动前就把它拦下来。
+ctx_out=""
+if command -v python3 >/dev/null 2>&1; then
+  ctx_out="$(python3 "$HERE/scripts/ctx_budget.py" --family "$STRATA_FAMILY" --model "$STRATA_MODEL" \
+               --context "$STRATA_CONTEXT" --memory "$mem_gib" 2>/dev/null || true)"
+fi
+ctx_status="$(printf '%s\n' "$ctx_out" | sed -n 's/^status=//p' | head -1)"
+ctx_msg="$(printf '%s\n' "$ctx_out" | sed -n 's/^message=//p' | head -1)"
+case "$ctx_status" in
+  ok)      ok "$ctx_msg" ;;
+  warn)    warn "$ctx_msg" ;;
+  bad)     bad "$ctx_msg" ;;
+  unknown) warn "$ctx_msg" ;;
+  skip)    : ;;  # KV 由引擎 / 显存在管，不需要这条核算
+  *)       warn "无法核算上下文预算（scripts/ctx_budget.py 没执行成功）：Inkling 32K 以上请自行确认内存" ;;
+esac
 
 mkdir -p "$DATA_DIR" 2>/dev/null || true
 avail="$(df -BG --output=avail "$DATA_DIR" 2>/dev/null | tail -1 | tr -dc '0-9')"

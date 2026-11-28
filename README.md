@@ -29,6 +29,8 @@ pixi run smoke            # 健康检查 + 模型列表 + 一次补全
 
 默认 30 分钟没有新请求，`idle-unload` 辅助容器会把模型卸载，释放显存和内存；下一次请求自动加载。
 阈值在 `.env` 的 `STRATA_IDLE_UNLOAD_S`（秒，0 = 关闭），日志用 `pixi run idle-logs` 查看。
+同一段空闲只会卸载一次，两次卸载至少隔 `STRATA_IDLE_UNLOAD_COOLDOWN_S`（默认 600 秒），避免把重载失败叠成
+Strata 的熔断（3 次后 503）；Inkling 的上下文还会按机器内存核算，见 [docs/models.md](docs/models.md)。
 
 ## 切换模型
 

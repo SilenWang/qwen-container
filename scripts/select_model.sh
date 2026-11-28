@@ -83,6 +83,27 @@ else
   fi
 fi
 
+# Inkling 从 32K 起把 KV 卸载到 host（内存）：按机器内存核算，装不下就降到装得下的档位。
+# 128K / 131072 在 16 GiB 内存的机器上重载时会被 OOM killer 结束，3 次后 Strata 熔断（客户端看到 503）。
+if [ "$FAMILY" = "inkling-2-mini" ] && command -v python3 >/dev/null 2>&1; then
+  mem_gib="${STRATA_MEM_GIB:-$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)}"
+  cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2- || true)"
+  budget="$(python3 "$HERE/scripts/ctx_budget.py" --family "$FAMILY" --model "$MODEL" \
+              --context "${cur_ctx:-$CTX_HINT}" --memory "$mem_gib" 2>/dev/null || true)"
+  b_status="$(printf '%s\n' "$budget" | sed -n 's/^status=//p' | head -1)"
+  b_suggested="$(printf '%s\n' "$budget" | sed -n 's/^suggested=//p' | head -1)"
+  b_msg="$(printf '%s\n' "$budget" | sed -n 's/^message=//p' | head -1)"
+  case "$b_status" in
+    bad | warn)
+      if [ -n "$b_suggested" ] && [ "$b_suggested" != "$cur_ctx" ]; then
+        set_env STRATA_CONTEXT "$b_suggested"
+        echo "内存核算：上下文 ${cur_ctx:-$CTX_HINT} 在 ${mem_gib} GiB 内存上装不下，已改写为 STRATA_CONTEXT=$b_suggested"
+        [ -n "$b_msg" ] && echo "  $b_msg"
+      fi
+      ;;
+  esac
+fi
+
 echo "切到 $LABEL"
 echo "  STRATA_FAMILY=$FAMILY  STRATA_MODEL=$MODEL  STRATA_PRESET=$PRESET"
 echo "  $NOTE"

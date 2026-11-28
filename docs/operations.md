@@ -79,7 +79,14 @@ Inkling 2 Mini 走魔搭（`resolve/master`）或 HuggingFace，下载源配置�
 # .env
 STRATA_IDLE_UNLOAD_S=1800   # 秒；0 = 关闭
 STRATA_IDLE_POLL_S=60       # 检查间隔；阈值误差不超过这个值
+STRATA_IDLE_UNLOAD_COOLDOWN_S=600   # 两次卸载的最小间隔（秒）；0 = 不限制
 ```
+
+一次空闲只卸载一次：卸载成功后记下当时的 `last_request_at`，在它前进（真的有新请求）之前不会再发
+`/unload`，两次卸载之间还有 `STRATA_IDLE_UNLOAD_COOLDOWN_S`（默认 600 秒）的冷却。这是为了避开
+Strata 0.2.21 起的熔断——同一个引擎 10 分钟内死 3 次就停止启动并返回 503
+（`The engine stopped 3 times in 10 minutes`）；重复卸载、或者刚重载就再卸，会把一次重载失败叠成熔断。
+「这段空闲已经卸过」记在容器的 `/tmp/idle-unload-state.json`，看门狗自己被重启也不会立刻再卸一次。
 
 改完 `pixi run recreate`。看它做了什么：`pixi run idle-logs`；`pixi run ps` 里会多一个
 `qwen-idle-unload`。卸载后 `/v1/models` 仍会列出模型（状态 `unloaded`），第一次请求会等模型重新加载。
@@ -136,6 +143,15 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 **整机卡住 / 内存被吃满**：Strata 要往内存里装几十 GB，首次加载 1–3 分钟机器很卡属正常；
 长期不够就换小档（Flash-Next 用 `Q2_0` / `coder`，35B-A3B 用 `UD-Q4_K_XL`）或在 `.env` 设
 `STRATA_RAM_KEEP_GIB=8` 给系统留内存。
+
+**闲置卸载后第一次请求 503 `The engine stopped 3 times in 10 minutes`**：这是 Strata 0.2.21 起的熔断
+保护——同一个引擎 10 分钟内停了 3 次就不再拉起，等 10 分钟会自动重试，`pixi run recreate` 立刻清空计数。
+先看现场：`pixi run logs | tail -100`（引擎最后一句常常是 `engine started: ...` 之后就没输出），
+再 `dmesg -T | grep -i -E 'killed process|out of memory'`。Inkling 最常见的原因是**上下文超过机器内存**：
+它从 32K 起把 KV 放到 host（内存），32K 约 1.1 GiB、128K 约 4.3 GiB；16 GiB 内存的机器用 128K，
+卸载后重新加载的峰值会顶到内存上限，引擎被 OOM killer 结束，重试 3 次就熔断。
+修法：`STRATA_CONTEXT=32k` 后 `pixi run recreate`（`pixi run model-inkling` 会按内存自动降）。
+`pixi run preflight` 现在会在启动前按机器内存核算，装不下直接报错并给出建议值。
 
 **很慢、磁盘灯常亮**：内存不足，专家在从 SSD 读。换小档，或确认数据目录（`STRATA_DATA_DIR`）在 NVMe 上。
 
