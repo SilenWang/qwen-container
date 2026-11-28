@@ -18,3 +18,6 @@ __pycache__/
 
 # Strata 的数据目录：所有模型的权重、预处理包、preset、API key
 strata-data/
+
+# 现场诊断输出（pixi run diagnose）
+output/diagnose-*.txt

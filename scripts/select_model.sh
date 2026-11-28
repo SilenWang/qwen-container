@@ -84,7 +84,8 @@ else
 fi
 
 # Inkling 从 32K 起把 KV 卸载到 host（内存）：按机器内存核算，装不下就降到装得下的档位。
-# 128K / 131072 在 16 GiB 内存的机器上重载时会被 OOM killer 结束，3 次后 Strata 熔断（客户端看到 503）。
+# 128K / 131072 在低于官方门槛的机器上（如刚好 16 GiB）重载时内存可能不够，3 次后 Strata 熔断；
+# 门槛只用于低配拦截，判定用实际 MemTotal，内存更大的机器不会被改写。
 if [ "$FAMILY" = "inkling-2-mini" ] && command -v python3 >/dev/null 2>&1; then
   mem_gib="${STRATA_MEM_GIB:-$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)}"
   cur_ctx="$(grep '^STRATA_CONTEXT=' .env | cut -d= -f2- || true)"

@@ -45,19 +45,34 @@ class InklingBudgetTest(unittest.TestCase):
         self.assertAlmostEqual(ctx_budget.host_kv_gib(32768), 1.07, places=2)
         self.assertAlmostEqual(ctx_budget.host_kv_gib(131072), 4.28, places=2)
 
-    def test_32k_on_16_gib_fits(self) -> None:
-        # 现场机器：12 GiB 3060 + 16 GiB 内存，审计实测 32K 可用
+    def test_32k_on_official_floor_fits(self) -> None:
+        # 16 GiB 是 SQ-10 的官方最低门槛（不是现场容量）：32K 在这个低配边界上刚好够
         out = ctx_budget.inkling_budget("SQ-10", 32768, 16)
         self.assertEqual(out["status"], "ok", out["message"])
         self.assertIsNone(out["suggested"])
 
-    def test_128k_on_16_gib_is_rejected(self) -> None:
-        # 本次 503：引擎命令行 --max-context 131072，机器 16 GiB
+    def test_128k_below_official_floor_is_rejected(self) -> None:
+        # 低配边界：128K 的 host KV 超出官方最低门槛；这条只说「低于门槛」，不是任何现场机器的结论
         out = ctx_budget.inkling_budget("SQ-10", 131072, 16)
         self.assertEqual(out["status"], "bad", out["message"])
         self.assertEqual(out["suggested"], "32k")
         self.assertAlmostEqual(out["host_kv_gib"], 4.28, places=2)
         self.assertGreater(out["required_gib"], 16)
+        self.assertIn("官方最低", out["message"])
+
+    def test_128k_on_a_real_128_gib_host_fits(self) -> None:
+        # 现场宿主是 128 GiB（SIL-991 审计 125.7 GiB）：128K 的 4.28 GiB host KV 完全够，
+        # 不能因为官方门槛是 16 GiB 就把这类机器也降成 32K
+        out = ctx_budget.inkling_budget("SQ-10", 131072, 128)
+        self.assertEqual(out["status"], "ok", out["message"])
+        self.assertIsNone(out["suggested"])
+        self.assertIn("本机实际 128 GiB", out["message"])
+        self.assertEqual(ctx_budget.inkling_budget("SQ-10", 65536, 128)["status"], "ok")
+
+    def test_no_forced_downgrade_above_the_floor(self) -> None:
+        # select_model 只在 bad/warn 时改写；48 GiB 以上 128K/256K 都应是 ok
+        for ctx in (131072, 262144):
+            self.assertEqual(ctx_budget.inkling_budget("SQ-10", ctx, 48)["status"], "ok", ctx)
 
     def test_128k_needs_more_memory(self) -> None:
         self.assertEqual(ctx_budget.inkling_budget("SQ-10", 131072, 24)["status"], "ok")

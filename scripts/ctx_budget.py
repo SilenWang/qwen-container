@@ -3,9 +3,17 @@
 
 Inkling 从 0.2.20 起在 32K 以上会把 KV 卸载到 host（内存，见 docs/models.md）。32K 时
 host KV 实测 1.07 GiB（镜像 0.2.21 的 `inkling_fit.compute('SQ-10', 12 GiB, ctx=32768)`），
-之后按 token 数线性增长。内存不够时引擎会在加载 / 重新加载时被 OOM killer 结束；Strata
-0.2.21 起同一故障 10 分钟内 3 次就熔断，客户端只会看到 503
-"The engine stopped 3 times in 10 minutes"。
+之后按 token 数线性增长。
+
+`INKLING_MIN_RAM_GIB` 是上游模型卡给的**官方最低内存门槛**（SQ-10 16 GiB），只用于在低配
+机器上提前拦截，**不是任何一台现场机器的容量**。判定必须用脚本实际读到的 MemTotal（或
+STRATA_MEM_GIB 预演值）：所以 128K 在 128 GiB 的机器上判 ok，只有「低于官方门槛 + host KV」
+的机器才判 bad。
+
+低于门槛时引擎可能在加载 / 重新加载时因内存不足被结束，Strata 0.2.21 起同一故障 10 分钟内
+3 次就熔断，客户端看到 503 "The engine stopped 3 times in 10 minutes"。但这条 503 也可能来自
+其它退出原因（显存、SIGILL、SIGBUS 等），先跑 `pixi run diagnose` 收证据，别把低配判断当成
+现场结论。
 
 preflight 用它做启动前准入（`pixi run preflight`），select_model 用它决定切到 Inkling 时
 要不要把上下文降到装得下的档位。两个脚本都只读这里的输出：
@@ -33,7 +41,8 @@ INKLING_FAMILIES = {"inkling-2-mini", "inkling", "inkling2"}
 CTX_BASE_TOKENS = 32768
 #: 0.2.21 镜像里 `inkling_fit.compute('SQ-10', 12 GiB, ctx=32768)` 的 host_kv_gb
 INKLING_HOST_KV_GIB_AT_32K = 1.07
-#: 各档位的官方内存门槛（整机内存，已含系统余量），见 docs/models.md
+#: 各档位的**官方最低内存门槛**（模型卡给的整机内存，已含系统余量），见 docs/models.md。
+#: 只用于低配拦截，不是现场机器的容量。
 INKLING_MIN_RAM_GIB = {"SQ-10": 16.0, "SQ-15": 24.0, "SQ-20": 32.0}
 DEFAULT_MIN_RAM_GIB = 16.0
 #: Strata 的上下文档位；给出建议值时只在这些值里挑
@@ -96,16 +105,16 @@ def inkling_budget(model: str | None, tokens: int, memory_gib: float | None) -> 
     if required <= memory_gib:
         out["status"] = "ok"
         out["message"] = (
-            f"上下文 {ok_ctx}：host KV 约 {kv:.2f} GiB，按 {name or 'Inkling'} 的 {base:g} GiB 门槛需 {required:.1f} GiB，"
-            f"机器 {memory_gib:g} GiB 够用"
+            f"上下文 {ok_ctx}：host KV 约 {kv:.2f} GiB，按 {name or 'Inkling'} 的官方最低 {base:g} GiB 门槛算需 "
+            f"{required:.1f} GiB，本机实际 {memory_gib:g} GiB，够用"
         )
     elif required <= memory_gib + 1.0:
         out.update(
             status="warn",
             suggested=format_context(best),
             message=(
-                f"上下文 {ok_ctx}：host KV 约 {kv:.2f} GiB，需 {required:.1f} GiB，机器只有 {memory_gib:g} GiB —— "
-                f"贴边，重载时可能被 OOM killer 结束；建议 STRATA_CONTEXT={format_context(best)}"
+                f"上下文 {ok_ctx}：host KV 约 {kv:.2f} GiB，按官方最低 {base:g} GiB 门槛算需 {required:.1f} GiB，"
+                f"本机实际 {memory_gib:g} GiB —— 贴边；建议 STRATA_CONTEXT={format_context(best)}"
             ),
         )
     else:
@@ -113,9 +122,9 @@ def inkling_budget(model: str | None, tokens: int, memory_gib: float | None) -> 
             status="bad",
             suggested=format_context(best),
             message=(
-                f"上下文 {ok_ctx} 装不下：host KV 约 {kv:.2f} GiB，按 {name or 'Inkling'} 的 {base:g} GiB 门槛需 "
-                f"{required:.1f} GiB，机器只有 {memory_gib:g} GiB。空闲卸载后重新加载会因内存不足被结束，"
-                f"3 次后 Strata 熔断并返回 503；改成 STRATA_CONTEXT={format_context(best)}（pixi run recreate）"
+                f"上下文 {ok_ctx} 低于官方门槛：host KV 约 {kv:.2f} GiB，按 {name or 'Inkling'} 的官方最低 "
+                f"{base:g} GiB 门槛算需 {required:.1f} GiB，本机实际只有 {memory_gib:g} GiB。重载时内存可能不够"
+                f"（引擎被结束，3 次后 503）；改成 STRATA_CONTEXT={format_context(best)}（pixi run recreate）"
             ),
         )
     return out

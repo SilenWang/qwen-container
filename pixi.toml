@@ -35,5 +35,6 @@ model-inkling   = { cmd = "bash scripts/select_model.sh inkling", description = 
 # ---------------- 验收 / 调参 ----------------
 preflight  = { cmd = "bash scripts/preflight.sh", description = "环境自检：docker / GPU 运行时 / 驱动 / 内存 / 磁盘 / 端口 / 已下载模型 / compose 渲染" }
 test       = { cmd = "python -m unittest discover -s scripts -p 'test_*.py' -v", description = "单元测试：空闲释放看门狗 + 上下文预算" }
+diagnose   = { cmd = "bash scripts/diagnose.sh", description = "现场诊断：容器内存限制 / 服务与引擎日志 / dmesg / shm / 磁盘（不改配置、不重启）" }
 smoke      = { cmd = "python scripts/smoke.py", depends-on = ["up"], description = "冒烟：健康检查 + 模型列表 + 一次 chat 补全 + 吞吐" }
 longctx    = { cmd = "python scripts/longctx.py", depends-on = ["up"], description = "长上下文召回实测：按深度埋 passcode，记录召回与端到端速度" }
