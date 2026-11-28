@@ -163,6 +163,18 @@ cuda13 要驱动 580+；驱动 575–579 或 GTX 10 / P100 / V100 换成 `cuda12
 内存低于 SQ-10 官方最低门槛 16 GiB 的机器用 128K 会顶到上限（`pixi run preflight` 会拦）；
 内存更大的机器不会被这条命中，要按 diagnose 的证据查其它退出原因。
 
+`pixi run diagnose` 会把这些一次收齐（只读，不重启）：
+
+- 启动横幅里写的**精确引擎日志** `/data/state/strata/launch/<preset>.engine.log`（容器内与宿主数据目录各一份）；
+- **全量**服务日志里 grep `engine stopped` / `exit code`，不再只看末尾 500 行；
+- healthcheck 的 Status / FailingStreak 与最近几次 `ExitCode` + 输出——能解释
+  `docker ps` 显示 `unhealthy` 而 `strata launch --status` 说 `ready` 的矛盾；
+- 最近 24 小时的容器事件（die / oom / kill / restart）、宿主 `nvidia-smi` 与 dmesg 的 NVRM / Xid。
+
+容器内 `nvidia-smi` 报 `Failed to initialize NVML` 时，先用宿主的 `nvidia-smi` 和
+`sudo dmesg -T | grep -i -E 'NVRM|Xid|fallen off'` 区分「GPU 还在」和「GPU / 驱动掉了」；
+后者通常重建容器（`pixi run recreate`）或重启驱动后才能恢复，和上下文大小无关。
+
 **很慢、磁盘灯常亮**：内存不足，专家在从 SSD 读。换小档，或确认数据目录（`STRATA_DATA_DIR`）在 NVMe 上。
 
 **长上下文首轮特别慢**：prefill 是瓶颈，属预期；长会话尽量复用上下文，或用 `pixi run longctx`
